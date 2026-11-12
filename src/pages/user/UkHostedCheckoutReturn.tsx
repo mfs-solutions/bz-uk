@@ -15,6 +15,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { useCart } from '../../contexts/CartContext';
 import { supabase } from '../../lib/supabase';
+import bzeadLogo from '../../../bzeadlogo.png';
 
 type PaymentState =
   | { status: 'verifying' }
@@ -260,9 +261,7 @@ const UkHostedCheckoutReturn: React.FC = () => {
 
   return (
     <main className="payment-return-page">
-      <div className="payment-return-brand" aria-label="BZEAD">
-        BZ<span>E</span>AD
-      </div>
+      <img className="payment-return-brand" src={bzeadLogo} alt="BZEAD" />
       <section
         className={`payment-result-card payment-result-card--${isVerifying ? 'verifying' : payment.status}`}
         aria-live="polite"

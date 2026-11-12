@@ -877,16 +877,13 @@
   }
 
   .payment-return-brand {
+    display: block;
+    width: 110px;
+    height: 28px;
     flex: none;
     margin: 4px 0 16px;
-    color: #173a72;
-    font-size: 21px;
-    font-weight: 800;
-    letter-spacing: -0.07em;
-  }
-
-  .payment-return-brand span {
-    color: var(--payment-primary);
+    object-fit: cover;
+    object-position: center;
   }
 
   .payment-result-card {
