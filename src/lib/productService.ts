@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { cachedQuery, clearQueryCache, QUERY_TTL } from './queryCache';
 import { notifyAccountEvent, notifyAdminsOfEvent } from './notificationService';
+import type { Product } from '../types';
 
 // Detects RLS / auth.uid()-mismatch failures on inserts/updates. When this
 // fires it usually means the access token the browser sent was expired, so the
@@ -627,6 +628,50 @@ export async function fetchTrendingProducts(limit = 10) {
 }
 
 export type ProductSection = 'featured' | 'hot-deals' | 'trending';
+
+export interface HomepageProductPage {
+  data: Product[];
+  count: number;
+  error: string | null;
+}
+
+/**
+ * Fetch one database-paginated page for a homepage section.
+ * Hot Deals candidates are filtered and ranked as pages are accumulated.
+ */
+export async function fetchHomepageProductsPage(
+  section: ProductSection,
+  limit: number,
+  offset: number,
+): Promise<HomepageProductPage> {
+  const isFeatured = section === 'featured';
+  const buildQuery = (fields: string) => {
+    let query = supabase
+      .from('products')
+      .select(fields, { count: 'exact' })
+      .eq('approval_status', 'approved')
+      .eq('is_active', true);
+
+    if (isFeatured) query = query.eq('is_featured', true);
+    if (section === 'hot-deals') query = query.not('mrp', 'is', null);
+
+    return query
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(offset, offset + limit - 1);
+  };
+
+  let response = await buildQuery(HOME_PRODUCT_FIELDS);
+  if (response.error && isMissingPublicProductIdColumn(response.error)) {
+    response = await buildQuery(stripPublicProductIdField(HOME_PRODUCT_FIELDS));
+  }
+
+  return {
+    data: (response.data || []) as unknown as Product[],
+    count: response.count || 0,
+    error: response.error?.message || null,
+  };
+}
 
 export const sectionMeta: Record<ProductSection, { title: string; subtitle: string; icon: string }> = {
   featured: {

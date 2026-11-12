@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,7 +13,8 @@ import { VideoAdsBanner } from '../components/layout/VideoAdsBanner';
 import { ProductCard } from '../components/products/ProductCard';
 import type { HeaderDetectedLocation } from '../components/layout/Header';
 import {
-  getActiveSponsoredProductsBySection,
+  fetchActiveHomepageSponsoredProductsPage,
+  getActiveHomepageSponsoredProductCount,
 } from '../lib/sponsoredProductsService';
 import {
   HOME_CONTENT_CACHE_TTL_MS,
@@ -21,17 +22,35 @@ import {
   isCacheFresh,
   readHomeBannersCache,
   readHomePricesCache,
-  readHomeSectionsCache,
   writeHomeBannersCache,
   writeHomePricesCache,
-  writeHomeSectionsCache,
   type HomePageBanner,
 } from '../lib/homePageCache';
 import { fetchPublicProductPrices } from '../lib/pricingService';
-import { fetchProductsBySection } from '../lib/productService';
+import { fetchHomepageProductsPage, type ProductSection } from '../lib/productService';
 
-/** Max products shown per homepage section row (Featured / Hot Deals / Trending). */
-const HOMEPAGE_SECTION_MAX = 100;
+const HOMEPAGE_PAGE_SIZE = 20;
+const HOMEPAGE_SECTIONS: Array<{ key: ProductSection; title: string }> = [
+  { key: 'featured', title: 'Featured Products' },
+  { key: 'hot-deals', title: 'Hot Deals' },
+  { key: 'trending', title: 'Trending Now 📈' },
+];
+
+type HomepageSectionState = {
+  products: Product[];
+  sourceProducts: Product[];
+  fetchedCount: number;
+  totalCount: number;
+  status: 'queued' | 'loading' | 'ready' | 'complete' | 'error';
+  error: string | null;
+};
+
+const createInitialSectionState = (): Record<ProductSection, HomepageSectionState> => ({
+  featured: { products: [], sourceProducts: [], fetchedCount: 0, totalCount: 0, status: 'queued', error: null },
+  'hot-deals': { products: [], sourceProducts: [], fetchedCount: 0, totalCount: 0, status: 'queued', error: null },
+  trending: { products: [], sourceProducts: [], fetchedCount: 0, totalCount: 0, status: 'queued', error: null },
+});
+
 import { useDestinationCountry } from '../hooks/useDestinationCountry';
 import { supabase } from '../lib/supabase';
 import type { Product } from '../types';
@@ -98,9 +117,41 @@ const ProductSectionRow: React.FC<{
   publicMrpMap: Record<string, number>;
   publicPriceLoading?: boolean;
   loading?: boolean;
-  maxVisible?: number;
   isSponsored?: boolean;
-}> = ({ title, products, seeMoreLink, publicPriceMap, publicMrpMap, publicPriceLoading = false, loading, maxVisible = 8, isSponsored = false }) => (
+  queued?: boolean;
+  queuedAfter?: string;
+  hasMore?: boolean;
+  error?: string | null;
+  onLoadMore?: () => void;
+}> = ({
+  title,
+  products,
+  seeMoreLink,
+  publicPriceMap,
+  publicMrpMap,
+  publicPriceLoading = false,
+  loading,
+  isSponsored = false,
+  queued = false,
+  queuedAfter,
+  hasMore = false,
+  error,
+  onLoadMore,
+}) => {
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || !hasMore || loading || error || typeof IntersectionObserver === 'undefined') return;
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) onLoadMore?.();
+    }, { rootMargin: '600px 0px' });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loading, error, onLoadMore]);
+
+  return (
   <div className="py-6">
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="flex items-center justify-between mb-4">
@@ -127,11 +178,17 @@ const ProductSectionRow: React.FC<{
             <div key={i} className="bg-gray-100 rounded-xl animate-pulse aspect-[4/5]" />
           ))}
         </div>
-      ) : products.length === 0 ? (
+      ) : queued ? (
+        <p className="text-gray-400 text-center py-8">
+          Waiting for {queuedAfter} to finish loading.
+        </p>
+      ) : products.length === 0 && hasMore ? (
+        <p className="text-gray-400 text-center py-8">Keep scrolling to find products in this section.</p>
+      ) : products.length === 0 && !loading && !error ? (
         <p className="text-gray-400 text-center py-8">No products yet</p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
-          {products.slice(0, maxVisible).map((product) => (
+          {products.map((product) => (
             <ProductCard
               key={product.id}
               product={product}
@@ -142,24 +199,50 @@ const ProductSectionRow: React.FC<{
           ))}
         </div>
       )}
+      {!queued && hasMore && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
+      {!queued && error && (
+        <div className="py-4 text-center">
+          <p role="alert" className="mb-2 text-sm text-red-600">{error}</p>
+          <button type="button" onClick={onLoadMore} className="text-sm font-medium text-amber-700 hover:text-amber-800">
+            Try loading again
+          </button>
+        </div>
+      )}
+      {!queued && loading && products.length > 0 && (
+        <p role="status" className="py-3 text-center text-sm text-gray-500">Loading more products…</p>
+      )}
+      {!queued && hasMore && !loading && !error && (
+        <button
+          type="button"
+          onClick={onLoadMore}
+          className="mx-auto mt-3 block text-sm font-medium text-amber-700 hover:text-amber-800"
+          aria-label={`Load next ${title} batch`}
+        >
+          Load more
+        </button>
+      )}
     </div>
   </div>
-);
+  );
+};
 
 export const BzeadHomePage: React.FC = () => {
   const { user, currentAuthUser } = useAuth();
   const isLoggedIn = !!user;
 
-  const [cachedSections] = useState(readHomeSectionsCache);
   const [cachedBanners] = useState(readHomeBannersCache);
-  const [featured, setFeatured] = useState<Product[]>(() => cachedSections?.value.featured || []);
-  const [deals, setDeals] = useState<Product[]>(() => cachedSections?.value.deals || []);
-  const [trending, setTrending] = useState<Product[]>(() => cachedSections?.value.trending || []);
+  const [sections, setSections] = useState(createInitialSectionState);
+  const sectionsRef = useRef(sections);
+  const [activeSectionIndex, setActiveSectionIndex] = useState(0);
+  const [hasSponsored, setHasSponsored] = useState(false);
+  const sponsoredModeRef = useRef<boolean | null>(null);
+  const requestInFlightRef = useRef(new Set<ProductSection>());
+  const featured = sections.featured.products;
+  const deals = sections['hot-deals'].products;
+  const trending = sections.trending.products;
   const [publicPriceMap, setPublicPriceMap] = useState<Record<string, number>>({});
   const [publicMrpMap, setPublicMrpMap] = useState<Record<string, number>>({});
   const [publicPriceLoading, setPublicPriceLoading] = useState(false);
-  const [loading, setLoading] = useState(!cachedSections);
-  const [hasSponsored, setHasSponsored] = useState(() => cachedSections?.value.hasSponsored || false);
   const [adBanners, setAdBanners] = useState<HomePageBanner[]>(() => cachedBanners?.value || []);
   const priceRequestRef = React.useRef(0);
   const [detectedCountry, setDetectedCountry] = useState(() => {
@@ -180,82 +263,91 @@ export const BzeadHomePage: React.FC = () => {
   const adSlot2 = adBanners.filter((banner) => banner.adSlot === 2);
   const adSlot3 = adBanners.filter((banner) => banner.adSlot === 3);
 
-  useEffect(() => {
-    let cancelled = false;
-    let lastRefreshAt = cachedSections?.cachedAt || 0;
-    let prefetchTimerId: number | null = null;
+  const loadNextPage = useCallback(async (section: ProductSection) => {
+    if (requestInFlightRef.current.has(section)) return;
+    const current = sectionsRef.current[section];
+    if (current.status === 'complete' || current.status === 'loading') return;
+    const offset = current.fetchedCount;
+    requestInFlightRef.current.add(section);
 
-    const refreshSections = async () => {
-      try {
-        const active = await getActiveSponsoredProductsBySection();
-        const noSponsoredData =
-          active.featured.length === 0
-          && active['hot-deals'].length === 0
-          && active.trending.length === 0;
+    const setSection = (nextSection: HomepageSectionState) => {
+      const next = { ...sectionsRef.current, [section]: nextSection };
+      sectionsRef.current = next;
+      setSections(next);
+    };
+    setSection({ ...current, status: 'loading', error: null });
 
-        let nextSections = {
-          featured: active.featured,
-          deals: active['hot-deals'],
-          trending: active.trending,
-          hasSponsored: !noSponsoredData,
-        };
+    try {
+      let isSponsored = sponsoredModeRef.current;
+      if (isSponsored === null) {
+        const result = await getActiveHomepageSponsoredProductCount();
+        if (result.error) throw new Error(result.error);
+        isSponsored = result.count > 0;
+        sponsoredModeRef.current = isSponsored;
+        setHasSponsored(isSponsored);
+      }
 
-        if (noSponsoredData) {
-          const [featuredFallback, dealsFallback, trendingFallback] = await Promise.all([
-            fetchProductsBySection('featured', HOMEPAGE_SECTION_MAX),
-            fetchProductsBySection('hot-deals', HOMEPAGE_SECTION_MAX),
-            fetchProductsBySection('trending', HOMEPAGE_SECTION_MAX),
-          ]);
+      const result = isSponsored
+        ? await fetchActiveHomepageSponsoredProductsPage(section, HOMEPAGE_PAGE_SIZE, offset)
+        : await fetchHomepageProductsPage(section, HOMEPAGE_PAGE_SIZE, offset);
+      if (result.error) throw new Error(result.error);
+      if (result.count > offset && result.data.length === 0) {
+        throw new Error(`The ${section} page returned no products before its reported end.`);
+      }
 
-          const failedSection = [featuredFallback, dealsFallback, trendingFallback]
-            .find((result) => result.error);
-          if (failedSection) {
-            throw new Error(failedSection.error || 'Unable to refresh home page products.');
-          }
+      const productsById = new Map(current.sourceProducts.map((product) => [product.id, product]));
+      (result.data || []).forEach((product) => productsById.set(product.id, product));
+      const sourceProducts = Array.from(productsById.values());
+      const products = !isSponsored && section === 'hot-deals'
+        ? sourceProducts
+          .filter((product) => Number(product.mrp) > Number(product.price))
+          .sort((left, right) => {
+            const leftDiscount = (Number(left.mrp) - left.price) / Number(left.mrp);
+            const rightDiscount = (Number(right.mrp) - right.price) / Number(right.mrp);
+            return rightDiscount - leftDiscount
+              || right.created_at.localeCompare(left.created_at)
+              || left.id.localeCompare(right.id);
+          })
+        : sourceProducts;
+      const totalCount = result.count;
+      const complete = offset + (result.data || []).length >= totalCount;
+      setSection({
+        products,
+        sourceProducts,
+        fetchedCount: offset + result.data.length,
+        totalCount,
+        status: complete ? 'complete' : 'ready',
+        error: null,
+      });
 
-          nextSections = {
-            featured: (featuredFallback.data || []) as Product[],
-            deals: (dealsFallback.data || []) as Product[],
-            trending: (trendingFallback.data || []) as Product[],
-            hasSponsored: false,
-          };
+      if (complete) {
+        const currentIndex = HOMEPAGE_SECTIONS.findIndex((entry) => entry.key === section);
+        if (currentIndex === activeSectionIndex && currentIndex + 1 < HOMEPAGE_SECTIONS.length) {
+          setActiveSectionIndex(currentIndex + 1);
         }
-
-        if (cancelled) return;
-        setFeatured(nextSections.featured);
-        setDeals(nextSections.deals);
-        setTrending(nextSections.trending);
-        setHasSponsored(nextSections.hasSponsored);
-        setLoading(false);
-        writeHomeSectionsCache(nextSections);
-        lastRefreshAt = Date.now();
-      } catch (error) {
-        console.error('Failed to refresh home page products:', error);
-        if (!cancelled && !cachedSections) setLoading(false);
       }
-    };
-
-    if (!cachedSections || !isCacheFresh(cachedSections, HOME_CONTENT_CACHE_TTL_MS)) {
-      void refreshSections();
-    } else {
-      // Keep first paint fast from cache, then prefetch fresh section data shortly after.
-      prefetchTimerId = window.setTimeout(() => {
-        if (!cancelled) void refreshSections();
-      }, 2500);
+    } catch (error) {
+      console.error(`Failed to load homepage ${section} products:`, error);
+      setSection({ ...current, status: 'error', error: 'Unable to load products. Please try again.' });
+    } finally {
+      requestInFlightRef.current.delete(section);
     }
+  }, [activeSectionIndex]);
 
-    const timerId = window.setInterval(() => {
-      if (Date.now() - lastRefreshAt >= HOME_CONTENT_CACHE_TTL_MS) {
-        void refreshSections();
-      }
-    }, HOME_CONTENT_CACHE_TTL_MS);
+  useEffect(() => {
+    const activeSection = HOMEPAGE_SECTIONS[activeSectionIndex]?.key;
+    if (activeSection && sections[activeSection].status === 'queued') {
+      void loadNextPage(activeSection);
+    }
+  }, [activeSectionIndex, loadNextPage, sections]);
 
-    return () => {
-      cancelled = true;
-      if (prefetchTimerId) window.clearTimeout(prefetchTimerId);
-      window.clearInterval(timerId);
-    };
-  }, [cachedSections]);
+  useEffect(() => {
+    sectionsRef.current = sections;
+  }, [sections]);
+
+  const loadFeatured = useCallback(() => void loadNextPage('featured'), [loadNextPage]);
+  const loadDeals = useCallback(() => void loadNextPage('hot-deals'), [loadNextPage]);
+  const loadTrending = useCallback(() => void loadNextPage('trending'), [loadNextPage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -398,10 +490,6 @@ export const BzeadHomePage: React.FC = () => {
     };
   }, [featured, deals, trending, selectedCountry]);
 
-  const featuredMax = Math.min(featured.length, HOMEPAGE_SECTION_MAX);
-  const dealsMax = Math.min(deals.length, HOMEPAGE_SECTION_MAX);
-  const trendingMax = Math.min(trending.length, HOMEPAGE_SECTION_MAX);
-
   return (
     // overflow-x-clip (not -hidden) prevents this wrapper from becoming a scroll container,
     // which would otherwise demote the sticky <Header> inside it (sticky needs a non-scrolling ancestor).
@@ -432,9 +520,11 @@ export const BzeadHomePage: React.FC = () => {
         publicPriceMap={publicPriceMap}
         publicMrpMap={publicMrpMap}
         publicPriceLoading={publicPriceLoading}
-        loading={loading}
-        maxVisible={featuredMax}
+        loading={sections.featured.status === 'loading'}
         isSponsored={hasSponsored}
+        hasMore={sections.featured.status === 'ready'}
+        error={sections.featured.error}
+        onLoadMore={loadFeatured}
       />
 
       {/* Ad Banner Slot 1 */}
@@ -448,9 +538,13 @@ export const BzeadHomePage: React.FC = () => {
         publicPriceMap={publicPriceMap}
         publicMrpMap={publicMrpMap}
         publicPriceLoading={publicPriceLoading}
-        loading={loading}
-        maxVisible={dealsMax}
+        loading={sections['hot-deals'].status === 'loading'}
         isSponsored={hasSponsored}
+        queued={sections['hot-deals'].status === 'queued'}
+        queuedAfter="Featured Products"
+        hasMore={sections['hot-deals'].status === 'ready'}
+        error={sections['hot-deals'].error}
+        onLoadMore={loadDeals}
       />
 
       {/* Ad Banner Slot 2 */}
@@ -464,9 +558,13 @@ export const BzeadHomePage: React.FC = () => {
         publicPriceMap={publicPriceMap}
         publicMrpMap={publicMrpMap}
         publicPriceLoading={publicPriceLoading}
-        loading={loading}
-        maxVisible={trendingMax}
+        loading={sections.trending.status === 'loading'}
         isSponsored={hasSponsored}
+        queued={sections.trending.status === 'queued'}
+        queuedAfter="Hot Deals"
+        hasMore={sections.trending.status === 'ready'}
+        error={sections.trending.error}
+        onLoadMore={loadTrending}
       />
 
       {/* Ad Banner Slot 3 */}
