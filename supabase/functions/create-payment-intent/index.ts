@@ -46,13 +46,22 @@ function getCorsHeaders(req: Request) {
 
 // Maximum allowed payment amount in smallest currency unit (e.g. 500000 INR = ₹5,00,000)
 const MAX_AMOUNT = 50_000_00;
+const UK_AMPLIFY_ORIGIN = 'https://main.d2532vkjbofjsn.amplifyapp.com';
 
 Deno.serve(async (req: Request) => {
   const corsHeaders = getCorsHeaders(req);
+  const origin = req.headers.get('origin') || '';
 
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+
+  if (origin === UK_AMPLIFY_ORIGIN) {
+    return new Response(
+      JSON.stringify({ error: "UK storefront payments must use UK Stripe-hosted checkout" }),
+      { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   }
 
   try {
