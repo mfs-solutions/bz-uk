@@ -871,17 +871,17 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: max(20px, env(safe-area-inset-top)) 20px max(16px, env(safe-area-inset-bottom));
+    padding: max(16px, env(safe-area-inset-top)) 20px max(12px, env(safe-area-inset-bottom));
     background: #fff;
     color: #17233c;
   }
 
   .payment-return-brand {
     display: block;
-    width: 110px;
-    height: 28px;
+    width: 76px;
+    height: 20px;
     flex: none;
-    margin: 4px 0 16px;
+    margin: 6px 0 16px;
     object-fit: cover;
     object-position: center;
   }
@@ -892,7 +892,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 18px 4px 8px;
+    padding: 0 4px 4px;
     text-align: center;
     animation: payment-result-enter 360ms ease-out both;
   }
@@ -900,11 +900,11 @@
   .payment-result-art {
     position: relative;
     display: grid;
-    width: 144px;
-    height: 144px;
+    width: 104px;
+    height: 104px;
     flex: none;
     place-items: center;
-    margin: 16px auto 26px;
+    margin: 8px auto 16px;
     color: var(--payment-primary);
   }
 
@@ -1019,9 +1019,9 @@
   }
 
   .payment-result-eyebrow {
-    margin: 0 0 10px;
+    margin: 0 0 8px;
     color: #435b80;
-    font-size: 11px;
+    font-size: 9px;
     font-weight: 750;
     letter-spacing: .16em;
   }
@@ -1029,17 +1029,17 @@
   .payment-result-copy h1 {
     margin: 0;
     color: #14213a;
-    font-size: clamp(26px, 7vw, 34px);
+    font-size: clamp(22px, 6vw, 30px);
     font-weight: 750;
     letter-spacing: -.035em;
     line-height: 1.16;
   }
 
   .payment-result-description {
-    margin: 13px auto 0;
+    margin: 8px auto 0;
     color: #58677e;
-    font-size: 15px;
-    line-height: 1.65;
+    font-size: 13px;
+    line-height: 1.5;
   }
 
   .payment-result-secondary {
@@ -1118,18 +1118,18 @@
     display: grid;
     gap: 10px;
     margin-top: auto;
-    padding-top: 32px;
+    padding-top: 24px;
   }
 
   .payment-primary-button,
   .payment-secondary-button {
-    min-height: 52px;
+    min-height: 44px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 10px;
-    border-radius: 13px;
-    font-size: 15px;
+    border-radius: 9px;
+    font-size: 13px;
     font-weight: 700;
     text-decoration: none;
     transition: background-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
@@ -1176,9 +1176,9 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    margin: 14px 0 0;
+    margin: 10px 0 0;
     color: #738197;
-    font-size: 11px;
+    font-size: 9px;
   }
 
   @keyframes payment-rotate { to { transform: rotate(360deg); } }
@@ -1198,6 +1198,8 @@
     }
 
     .payment-return-brand {
+      width: 110px;
+      height: 28px;
       margin: 0 0 22px;
     }
 
@@ -1212,7 +1214,24 @@
     }
 
     .payment-result-art {
+      width: 144px;
+      height: 144px;
       margin-top: 10px;
+    }
+
+    .payment-result-eyebrow {
+      margin-bottom: 10px;
+      font-size: 11px;
+    }
+
+    .payment-result-copy h1 {
+      font-size: 34px;
+    }
+
+    .payment-result-description {
+      margin-top: 13px;
+      font-size: 15px;
+      line-height: 1.65;
     }
 
     .payment-result-actions {
@@ -1220,8 +1239,16 @@
       padding-top: 28px;
     }
 
+    .payment-primary-button,
+    .payment-secondary-button {
+      min-height: 52px;
+      border-radius: 13px;
+      font-size: 15px;
+    }
+
     .payment-return-security {
       margin-top: 18px;
+      font-size: 11px;
     }
   }
 

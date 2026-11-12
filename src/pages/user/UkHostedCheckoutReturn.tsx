@@ -281,7 +281,7 @@ const UkHostedCheckoutReturn: React.FC = () => {
           ) : payment.status === 'failed' ? (
             <CircleX size={86} strokeWidth={1.4} />
           ) : payment.status === 'cancelled' ? (
-            <ArrowLeft size={76} strokeWidth={1.5} />
+            <ArrowLeft size={52} strokeWidth={1.5} />
           ) : payment.status === 'processing' ? (
             <div className="payment-processing-mark"><Clock3 size={76} strokeWidth={1.4} /><span /></div>
           ) : (
