@@ -9,7 +9,6 @@ import { Footer } from '../components/layout/Footer';
 import { WelcomeBackBar } from '../components/layout/WelcomeBackBar';
 import { Categories } from '../components/layout/Categories';
 import { MobileNav } from '../components/layout/MobileNav';
-import { VideoAdsBanner } from '../components/layout/VideoAdsBanner';
 import { ProductCard } from '../components/products/ProductCard';
 import type { HeaderDetectedLocation } from '../components/layout/Header';
 import {
@@ -491,9 +490,6 @@ export const BzeadHomePage: React.FC = () => {
         </div>
       </div>
       )}
-
-      {/* Video Ads — above footer */}
-      <VideoAdsBanner />
 
       {/* Footer */}
       <Footer />
