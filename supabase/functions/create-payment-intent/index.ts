@@ -21,6 +21,7 @@ const ALLOWED_ORIGINS = [
   'https://bzead.asia',
   'https://www.bzead.asia',
   'https://main.dodpm249jwwgd.amplifyapp.com',
+  'https://main.d2532vkjbofjsn.amplifyapp.com',
   'https://www.bzead.com',
   'https://bzead.com',
   'http://localhost:5173',

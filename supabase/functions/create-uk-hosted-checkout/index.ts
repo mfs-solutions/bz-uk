@@ -2,15 +2,20 @@ import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getOrCreateStripeCustomer } from "../create-payment-intent/customer.ts";
 
-const origins = new Set(["https://bzead.uk", "https://www.bzead.uk"]);
+const origins = new Set([
+  "https://bzead.uk",
+  "https://www.bzead.uk",
+  "https://main.d2532vkjbofjsn.amplifyapp.com",
+]);
 
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("origin") || "";
+  const returnOrigin = origins.has(origin) ? origin : "https://bzead.uk";
   const json = (body: unknown, status: number) => new Response(JSON.stringify(body), {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": origins.has(origin) ? origin : "https://bzead.uk",
+      "Access-Control-Allow-Origin": returnOrigin,
       "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Vary": "Origin",
@@ -106,8 +111,8 @@ Deno.serve(async (req: Request) => {
         quantity: 1,
       }],
       metadata: { uk_checkout_snapshot_id: snapshotId },
-      success_url: "https://bzead.uk/checkout/uk-payment-return?session_id={CHECKOUT_SESSION_ID}",
-      cancel_url: "https://bzead.uk/cart",
+      success_url: `${returnOrigin}/checkout/uk-payment-return?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${returnOrigin}/cart`,
     }, { idempotencyKey: `uk-checkout-${snapshotId}` });
     if (session.status !== "open" || !session.url || session.livemode !== livemode ||
         session.amount_total !== snapshot.amount_minor || session.currency !== snapshot.currency ||

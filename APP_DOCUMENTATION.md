@@ -409,10 +409,16 @@ service-role key in frontend build variables.
 
 Browser-invoked Edge Functions use explicit CORS allowlists. Keep storefront
 origins in those lists (`https://www.bzead.uk`, `https://bzead.uk`,
+`https://main.d2532vkjbofjsn.amplifyapp.com`,
 `https://www.bzead.com`, `https://bzead.com`, `https://www.bzead.in`,
 `https://bzead.in`, `https://www.bzead.asia`, `https://bzead.asia`,
 `https://www.bzead.eu`, `https://bzead.eu`) alongside local development
 origins.
+
+The production Amplify hostname is accepted by the UK checkout gate and its
+quote, session, verification, and payment-intent CORS allowlists. Stripe
+success and cancel redirects preserve that allowed origin so the browser
+returns to the same host and its authenticated session.
 
 The functions present in the repository are not proof that every function is
 currently deployed, configured, or enabled in production. Check the linked

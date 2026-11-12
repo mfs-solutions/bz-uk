@@ -3,7 +3,11 @@ import { calculateDestinationCheckoutPricing } from "../../../src/lib/checkoutPr
 import { isUKCountry } from "../../../src/config/market.ts";
 import { calculateUkHostedCheckoutTotal } from "../../../src/lib/ukHostedCheckoutPricing.ts";
 
-const origins = new Set(["https://bzead.uk", "https://www.bzead.uk"]);
+const origins = new Set([
+  "https://bzead.uk",
+  "https://www.bzead.uk",
+  "https://main.d2532vkjbofjsn.amplifyapp.com",
+]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const token = (value: string | null) => value?.trim().toLowerCase() || "-";
 

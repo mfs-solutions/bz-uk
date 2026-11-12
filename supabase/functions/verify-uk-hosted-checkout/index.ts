@@ -3,7 +3,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { recoverUkHostedCheckout } from "../_shared/uk-hosted-checkout.ts";
 import { sendUkOrderEmail, sendUkOrderPush } from "../_shared/uk-order-email.ts";
 
-const origins = new Set(["https://bzead.uk", "https://www.bzead.uk"]);
+const origins = new Set([
+  "https://bzead.uk",
+  "https://www.bzead.uk",
+  "https://main.d2532vkjbofjsn.amplifyapp.com",
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

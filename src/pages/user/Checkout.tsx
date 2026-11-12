@@ -1728,7 +1728,11 @@ const Checkout: React.FC = () => {
     && checkoutPaymentProvider === 'stripe'
     && import.meta.env.VITE_UK_HOSTED_CHECKOUT === 'true'
     && typeof window !== 'undefined'
-    && ['bzead.uk', 'www.bzead.uk'].includes(window.location.hostname.toLowerCase());
+    && [
+      'bzead.uk',
+      'www.bzead.uk',
+      'main.d2532vkjbofjsn.amplifyapp.com',
+    ].includes(window.location.hostname.toLowerCase());
 
   const { rates, formatPrice } = useCurrency();
   const [clientSecret, setClientSecret] = useState<string | null>(null);
