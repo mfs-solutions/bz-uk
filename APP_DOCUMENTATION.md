@@ -357,12 +357,12 @@ Apply the `20261111000000_stripe_customer_mapping.sql` migration and deploy
 `create-payment-intent` before deploying the client. This applies only to
 Stripe checkout, not the separate Revolut checkout.
 
-The UK hosted-checkout flow is implemented but must remain disabled until its
-isolated schema, Edge Functions, account credentials, and webhook are deployed
-and verified. The client branch is gated by `VITE_UK_HOSTED_CHECKOUT=true`, the
-UK market, the bzead.uk hostname, web runtime, and the Stripe provider. Quote
-and session creation also require `UK_HOSTED_CHECKOUT_ENABLED=true`. The
-frontend template defaults the client flag to `false`.
+The UK hosted-checkout flow is deployed and enabled in production as of
+2026-11-12. Its client branch requires `VITE_UK_HOSTED_CHECKOUT=true`, the UK
+market, the bzead.uk hostname, web runtime, and the Stripe provider. Quote and
+session creation also require `UK_HOSTED_CHECKOUT_ENABLED=true`. Keep the
+frontend template default at `false`; explicitly set the Amplify environment
+variable for the UK deployment.
 
 The flow uses the isolated `uk_hosted_checkout_sessions` and
 `uk_stripe_customers` tables in
@@ -371,10 +371,14 @@ The original `20261112023000_uk_hosted_checkout_recovery.sql` migration is
 already applied in production and remains unchanged. UK
 Stripe configuration uses `UK_STRIPE_SECRET_KEY`, `UK_STRIPE_ACCOUNT_ID`, and
 a separate `UK_STRIPE_WEBHOOK_SECRET`; the UK webhook does not replace the
-existing Stripe webhook. The webhook handles paid and expired Checkout
-Sessions, and paid-order recovery is idempotent across webhook and browser
-return. Buyer, seller, and admin in-app notifications, email, and push use the
-existing services with retry-safe UK state.
+existing Stripe webhook. The live endpoint is
+`https://aiiefgjfftmerayihpbv.supabase.co/functions/v1/uk-hosted-checkout-webhook`
+and subscribes to `checkout.session.completed`,
+`checkout.session.async_payment_succeeded`, and `checkout.session.expired`.
+The webhook handles paid and expired Checkout Sessions, and paid-order
+recovery is idempotent across webhook and browser return. Buyer, seller, and
+admin in-app notifications, email, and push use the existing services with
+retry-safe UK state.
 
 UK checkout intentionally does not reserve or permanently decrement shared
 inventory. If payment succeeds after stock is sold elsewhere, the UK recovery
@@ -392,11 +396,15 @@ captured payment. Stripe Checkout Sessions expire after 31 minutes because
 Stripe requires a minimum expiry window of 30 minutes. UK refunds remain
 manual.
 
-Before enabling either flag, apply the UK-only follow-up migration, deploy the UK quote,
-session, verify, and webhook functions, configure the secrets directly in
-Supabase, register the dedicated UK Stripe webhook including
-`checkout.session.expired`, and complete the test-mode and production
-readiness checks. Never put Stripe secret keys, webhook secrets, or the
+Production status was checked on 2026-11-12: both UK checkout migrations are
+applied; the quote, create, verify, and webhook functions are deployed; the
+dedicated live Stripe webhook and required UK Stripe secrets are configured;
+and both the backend flag and deployed Amplify client gate are enabled. An
+end-to-end payment has not yet been performed, so verify checkout and order
+recovery with an approved test procedure before relying on live purchases.
+For a new environment, apply the UK-only migrations, deploy the UK functions,
+configure its own UK Stripe secrets and webhook, and set both feature flags
+only after validation. Never put Stripe secret keys, webhook secrets, or the
 service-role key in frontend build variables.
 
 Browser-invoked Edge Functions use explicit CORS allowlists. Keep storefront
