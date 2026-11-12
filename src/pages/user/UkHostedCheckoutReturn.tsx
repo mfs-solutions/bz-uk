@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Header } from '../../components/layout/Header';
 import { Footer } from '../../components/layout/Footer';
@@ -13,6 +13,8 @@ type PaymentState =
   | { status: 'unpaid' | 'expired' }
   | { status: 'error'; message: string };
 
+const PENDING_UK_CHECKOUT_KEY = 'beauzead_uk_pending_checkout_session';
+
 const UkHostedCheckoutReturn: React.FC = () => {
   const { search } = useLocation();
   const { user, currentAuthUser, loading } = useAuth();
@@ -21,7 +23,27 @@ const UkHostedCheckoutReturn: React.FC = () => {
   const [payment, setPayment] = useState<PaymentState>({ status: 'loading' });
   const [cancelling, setCancelling] = useState(false);
   const userId = user?.id || currentAuthUser?.userId;
-  const sessionId = new URLSearchParams(search).get('session_id') || '';
+  const searchParams = new URLSearchParams(search);
+  const cancelReturn = searchParams.get('action') === 'cancel';
+  const [storedSessionId] = useState(() => {
+    try {
+      return localStorage.getItem(PENDING_UK_CHECKOUT_KEY) || '';
+    } catch (error) {
+      console.warn('[UkHostedCheckoutReturn] Could not read pending checkout session:', error);
+      return '';
+    }
+  });
+  const sessionId = searchParams.get('session_id') || (cancelReturn ? storedSessionId : '');
+
+  const clearPendingSession = useCallback(() => {
+    try {
+      if (localStorage.getItem(PENDING_UK_CHECKOUT_KEY) === sessionId) {
+        localStorage.removeItem(PENDING_UK_CHECKOUT_KEY);
+      }
+    } catch (error) {
+      console.warn('[UkHostedCheckoutReturn] Could not clear pending checkout session:', error);
+    }
+  }, [sessionId]);
 
   useEffect(() => {
     if (loading) return;
@@ -37,15 +59,17 @@ const UkHostedCheckoutReturn: React.FC = () => {
     setPayment({ status: 'loading' });
     void (async () => {
       const { data, error } = await supabase.functions.invoke('verify-uk-hosted-checkout', {
-        body: { sessionId },
+        body: { sessionId, ...(cancelReturn && attempt === 0 ? { action: 'cancel' } : {}) },
       });
       if (cancelled) return;
       if (error || !data || typeof data !== 'object') {
         console.error('[UkHostedCheckoutReturn] Payment verification failed:', error);
         setPayment({ status: 'error', message: 'We could not confirm your payment yet. If you have paid, do not pay again; try checking again or contact support.' });
       } else if (data.status === 'paid' && typeof data.orderId === 'string' && data.orderId) {
+        clearPendingSession();
         setPayment({ status: 'paid', orderId: data.orderId });
       } else if (data.status === 'unpaid' || data.status === 'expired') {
+        if (data.status === 'expired') clearPendingSession();
         setPayment({ status: data.status });
       } else {
         console.error('[UkHostedCheckoutReturn] Unexpected verification response');
@@ -53,7 +77,7 @@ const UkHostedCheckoutReturn: React.FC = () => {
       }
     })();
     return () => { cancelled = true; };
-  }, [loading, userId, sessionId, attempt]);
+  }, [loading, userId, sessionId, cancelReturn, attempt, clearPendingSession]);
 
   useEffect(() => {
     if (payment.status !== 'paid' || !userId) return;
@@ -70,8 +94,10 @@ const UkHostedCheckoutReturn: React.FC = () => {
       });
       if (error || !data) throw error || new Error('Empty verification response');
       if (data.status === 'paid' && typeof data.orderId === 'string') {
+        clearPendingSession();
         setPayment({ status: 'paid', orderId: data.orderId });
       } else if (data.status === 'expired') {
+        clearPendingSession();
         setPayment({ status: 'expired' });
       } else {
         throw new Error('Payment could not be cancelled');
@@ -101,8 +127,10 @@ const UkHostedCheckoutReturn: React.FC = () => {
               <p className="mt-3">{payment.status === 'error' ? payment.message : payment.status === 'expired'
                 ? 'This checkout session has expired without a confirmed payment.'
                 : 'Payment has not been confirmed. If you have already paid, do not pay again; check again or contact support.'}</p>
-              <button className="mt-5 px-5 py-2 rounded bg-[#ffd814] font-semibold" onClick={() => setAttempt((value) => value + 1)}>Check again</button>
-              {payment.status === 'unpaid' && (
+              {payment.status !== 'expired' && (
+                <button className="mt-5 px-5 py-2 rounded bg-[#ffd814] font-semibold" onClick={() => setAttempt((value) => value + 1)}>Check again</button>
+              )}
+              {payment.status === 'unpaid' && !cancelReturn && (
                 <button className="mt-5 ml-3 px-5 py-2 rounded border border-gray-400 font-semibold" disabled={cancelling} onClick={() => void cancelCheckout()}>
                   {cancelling ? 'Cancelling...' : 'Cancel checkout'}
                 </button>

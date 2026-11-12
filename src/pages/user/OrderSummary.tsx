@@ -654,6 +654,17 @@ const OrderSummaryPage: React.FC = () => {
             { body: quoteBody },
           );
           if (quoteError) {
+            if (isRecord(quoteError) && quoteError.context instanceof Response) {
+              try {
+                const details: unknown = await quoteError.context.clone().json();
+                if (isRecord(details) && details.status === 'paid' && typeof details.orderId === 'string') {
+                  navigate(`/orders/${encodeURIComponent(details.orderId)}`);
+                  return;
+                }
+              } catch (parseError) {
+                console.warn('[OrderSummary] Could not parse previous checkout status:', parseError);
+              }
+            }
             throw new Error(await getEdgeFunctionErrorMessage(
               quoteError,
               'Unable to verify your checkout. Please return to review and try again.',
@@ -682,12 +693,22 @@ const OrderSummaryPage: React.FC = () => {
             'Unable to open the payment page. Please check the status before trying again.',
           ));
         }
-        if (!isRecord(checkout) || typeof checkout.checkoutUrl !== 'string') {
+        if (
+          !isRecord(checkout)
+          || typeof checkout.checkoutUrl !== 'string'
+          || typeof checkout.sessionId !== 'string'
+          || !/^cs_(test|live)_[A-Za-z0-9]+$/.test(checkout.sessionId)
+        ) {
           throw new Error('The payment page address could not be verified.');
         }
         const destination = new URL(checkout.checkoutUrl);
         if (destination.protocol !== 'https:' || destination.hostname !== 'checkout.stripe.com') {
           throw new Error('The payment page address could not be verified.');
+        }
+        try {
+          localStorage.setItem('beauzead_uk_pending_checkout_session', checkout.sessionId);
+        } catch (storageError) {
+          console.warn('[OrderSummary] Could not persist pending checkout session for cancellation return:', storageError);
         }
         window.location.assign(destination.href);
       } catch (error) {
@@ -795,7 +816,7 @@ const OrderSummaryPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white border border-[#ddd] rounded-lg p-4 sm:p-5">
+            <div className="order-summary-items-delivery bg-white border border-[#ddd] rounded-lg p-4 sm:p-5">
               <h2 className="text-[15px] font-bold text-[#0f1111] mb-3">
                 Items & Delivery
               </h2>
@@ -820,6 +841,83 @@ const OrderSummaryPage: React.FC = () => {
               {isInternationalOrder && !estimatedDeliveryDate && !activeOption?.estimatedDays && !deliveryEstimateLoading && !pricingLoading && (
                 <div className="bg-[#f0faf0] border border-[#c3e6cb] rounded-md p-2.5 mb-4 text-[13px]">
                   <strong className="text-[#067d62]">Estimated Delivery:</strong> Varies by destination — contact support for estimates
+                </div>
+              )}
+
+              {tierOptions && !pricingLoading && (
+                <div className="order-summary-mobile-delivery-options mt-4 space-y-2.5 lg:hidden">
+                  <p className="text-xs font-bold text-gray-800 uppercase tracking-wider">Choose Delivery Speed</p>
+                  {([
+                    { tier: 'standard' as const, option: tierOptions.standard, badge: 'Best Value' },
+                    { tier: 'premium' as const, option: tierOptions.premium, badge: 'Priority' },
+                    { tier: 'express' as const, option: tierOptions.express, badge: 'Fastest' },
+                  ]).map(({ tier, option, badge }) => {
+                    if (!option) return null;
+                    const selected = shippingTier === tier;
+                    const color = {
+                      standard: {
+                        border: selected ? 'border-emerald-500' : 'border-gray-200',
+                        background: selected ? 'bg-emerald-50/60' : 'bg-white',
+                        radio: selected ? 'border-emerald-500' : 'border-gray-300',
+                        dot: 'bg-emerald-500',
+                        badge: 'bg-emerald-100 text-emerald-700',
+                      },
+                      premium: {
+                        border: selected ? 'border-blue-500' : 'border-gray-200',
+                        background: selected ? 'bg-blue-50/60' : 'bg-white',
+                        radio: selected ? 'border-blue-500' : 'border-gray-300',
+                        dot: 'bg-blue-500',
+                        badge: 'bg-blue-100 text-blue-700',
+                      },
+                      express: {
+                        border: selected ? 'border-orange-500' : 'border-gray-200',
+                        background: selected ? 'bg-orange-50/60' : 'bg-white',
+                        radio: selected ? 'border-orange-500' : 'border-gray-300',
+                        dot: 'bg-orange-500',
+                        badge: 'bg-orange-100 text-orange-700',
+                      },
+                    }[tier];
+
+                    return (
+                      <label
+                        key={tier}
+                        className={`flex items-center gap-3 cursor-pointer rounded-xl border-2 p-3 transition-all ${color.border} ${color.background}`}
+                      >
+                        <input
+                          type="radio"
+                          name="shippingTier"
+                          value={tier}
+                          checked={selected}
+                          onChange={() => setShippingTier(tier)}
+                          disabled={Boolean(ukHostedCheckoutSnapshot)}
+                          className="sr-only"
+                        />
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${color.radio}`}>
+                          {selected && <div className={`w-2.5 h-2.5 rounded-full ${color.dot}`} />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-gray-900">
+                                {tier.charAt(0).toUpperCase() + tier.slice(1)}
+                              </span>
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${color.badge}`}>
+                                {badge}
+                              </span>
+                            </div>
+                            <span className="text-sm font-bold text-gray-900">
+                              {formatCurrency(option.shipping, targetCurrency)}
+                            </span>
+                          </div>
+                          {option.estimatedDays && (
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {option.estimatedDays} business days
+                            </p>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
                 </div>
               )}
 
@@ -880,15 +978,15 @@ const OrderSummaryPage: React.FC = () => {
           </div>
 
           <div className="order-summary-price-panel">
-            <div className="bg-white border border-[#ddd] rounded-lg p-5 lg:sticky lg:top-5">
-              <h2 className="text-[16px] font-bold text-[#0f1111] mb-4">Price Details</h2>
+            <div className="bg-white border border-[#ddd] rounded-lg p-3 sm:p-5 lg:sticky lg:top-5">
+              <h2 className="text-[16px] font-bold text-[#0f1111] mb-2 lg:mb-4">Price Details</h2>
 
-              <div className="space-y-2 mb-3">
+              <div className="space-y-1.5 lg:space-y-2 mb-2 lg:mb-3">
                 {pricingLoading && (
-                  <div className="text-xs text-gray-400">Checking configured shipping table, then carrier fallback...</div>
+                  <div className="hidden lg:block text-xs text-gray-400">Checking configured shipping table, then carrier fallback...</div>
                 )}
                 {deliveryEstimateLoading && (
-                  <div className="text-xs text-gray-400">Fetching delivery date...</div>
+                  <div className="hidden lg:block text-xs text-gray-400">Fetching delivery date...</div>
                 )}
                 <div className="flex justify-between text-[14px]">
                   <span className="text-[#555]">Items ({activeCartItems.length})</span>
@@ -930,7 +1028,7 @@ const OrderSummaryPage: React.FC = () => {
 
                 {/* International shipping tier selector — Temu/Shein style */}
                 {tierOptions && !pricingLoading && (
-                  <div className="mt-4 space-y-2.5">
+                  <div className="order-summary-desktop-delivery-options mt-4 space-y-2.5">
                     <p className="text-xs font-bold text-gray-800 uppercase tracking-wider">Choose Delivery Speed</p>
 
                     {/* Standard tier card */}
@@ -1137,9 +1235,10 @@ const OrderSummaryPage: React.FC = () => {
                 </div>
               )}
 
+              <div className="order-summary-payment-action">
               {!minimumOrderNotMet && (
-                <div className="border-t-2 border-[#ddd] pt-3 mt-3 mb-4">
-                  <div className="flex justify-between text-[18px] font-bold text-[#b12704]">
+                <div className="border-t-2 border-[#ddd] pt-2 lg:pt-3 mt-2 lg:mt-3 mb-2 lg:mb-4">
+                  <div className="flex justify-between text-base lg:text-[18px] font-bold text-[#b12704]">
                     <span>Order Total</span>
                     <span>{formatCurrency(pricing ? calculateTotal() : Number.NaN, targetCurrency)}</span>
                   </div>
@@ -1155,7 +1254,7 @@ const OrderSummaryPage: React.FC = () => {
               {minimumOrderNotMet ? (
                 <button
                   onClick={() => navigate('/cart')}
-                  className="w-full py-3.5 bg-[#0B2A66] hover:bg-[#081F4D] text-white rounded-lg text-[15px] font-bold cursor-pointer transition-colors"
+                  className="w-full py-2.5 lg:py-3.5 bg-[#0B2A66] hover:bg-[#081F4D] text-white rounded-lg text-[15px] font-bold cursor-pointer transition-colors"
                 >
                   ← Back to Cart
                 </button>
@@ -1163,7 +1262,7 @@ const OrderSummaryPage: React.FC = () => {
                 <button
                   onClick={handleProceedToPayment}
                   disabled={!isPricingReady || proceedLoading}
-                  className="w-full py-3.5 bg-[#ffd814] hover:bg-[#f7ca00] border border-[#fcd200] disabled:bg-gray-200 disabled:border-gray-300 text-[#0f1111] rounded-lg text-[15px] font-bold cursor-pointer transition-colors"
+                  className="w-full py-2.5 lg:py-3.5 bg-[#ffd814] hover:bg-[#f7ca00] border border-[#fcd200] disabled:bg-gray-200 disabled:border-gray-300 text-[#0f1111] rounded-lg text-[15px] font-bold cursor-pointer transition-colors"
                 >
                   {proceedLoading
                     ? useUkHostedCheckout ? 'Opening Stripe checkout...' : 'Verifying checkout...'
@@ -1181,14 +1280,15 @@ const OrderSummaryPage: React.FC = () => {
                 </button>
               )}
 
-              <div className="flex items-center justify-center gap-1.5 text-[12px] text-[#067d62] mt-3">
+              <div className="flex items-center justify-center gap-1.5 text-[11px] lg:text-[12px] text-[#067d62] mt-1.5 lg:mt-3">
                 🔒 Secure checkout powered by Stripe
               </div>
+              </div>
 
-              <hr className="border-t border-[#eee] my-4" />
+              <hr className="hidden lg:block border-t border-[#eee] my-4" />
 
               {!IS_UK_STOREFRONT && (
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="hidden lg:flex items-center gap-2 flex-wrap">
                   <span className="text-[12px] text-[#555]">Accepted:</span>
                   <span className="px-2 py-1 bg-[#f0f0f0] rounded text-[11px] font-semibold text-[#555]">Visa</span>
                   <span className="px-2 py-1 bg-[#f0f0f0] rounded text-[11px] font-semibold text-[#555]">Mastercard</span>

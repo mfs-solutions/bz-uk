@@ -1,7 +1,14 @@
+import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculateDestinationCheckoutPricing } from "../../../src/lib/checkoutPricingService.ts";
 import { isUKCountry } from "../../../src/config/market.ts";
 import { calculateUkHostedCheckoutTotal } from "../../../src/lib/ukHostedCheckoutPricing.ts";
+import {
+  expireOpenUnpaidCheckout,
+  getAbandonedCheckoutAction,
+} from "../_shared/uk-checkout-lifecycle.ts";
+import { recoverUkHostedCheckout } from "../_shared/uk-hosted-checkout.ts";
+import { sendUkOrderEmail, sendUkOrderPush } from "../_shared/uk-order-email.ts";
 
 const origins = new Set([
   "https://bzead.uk",
@@ -79,16 +86,105 @@ Deno.serve(async (req: Request) => {
     const db = createClient(url, key);
     const { data: auth, error: authError } = await db.auth.getUser(authorization.slice(7));
     if (authError || !auth.user) return json({ error: "Invalid authentication token" }, 401);
+    const stripe = new Stripe(stripeKey, {
+      apiVersion: "2025-02-24.acacia",
+      httpClient: Stripe.createFetchHttpClient(),
+    });
+    const livemode = /^(sk|rk)_live_/.test(stripeKey);
+    const account = await stripe.accounts.retrieve();
+    if (account.id !== accountId) throw new Error("Stripe account does not match UK configuration");
     const { error: staleError } = await db.from("uk_hosted_checkout_sessions")
       .delete().eq("user_id", auth.user.id).is("stripe_session_id", null).is("order_id", null)
       .lt("created_at", new Date(Date.now() - 5 * 60_000).toISOString());
     if (staleError) throw staleError;
     const { data: active, error: activeError } = await db.from("uk_hosted_checkout_sessions")
-      .select("stripe_session_id").eq("user_id", auth.user.id)
+      .select("id,stripe_session_id,stripe_account_id,livemode,amount_minor,currency")
+      .eq("user_id", auth.user.id)
       .is("order_id", null).is("closed_at", null).maybeSingle();
     if (activeError) throw activeError;
     if (active) {
-      return json({ error: "An earlier checkout is still open. Complete or cancel it before starting another.", sessionId: active.stripe_session_id }, 409);
+      if (!active.stripe_session_id) {
+        return json({ error: "Your checkout is still being prepared. Please try again in a few seconds." }, 409);
+      }
+      if (active.stripe_account_id !== accountId || active.livemode !== livemode || active.currency !== "gbp") {
+        throw new Error("Active checkout does not match UK Stripe configuration");
+      }
+
+      let existingSession = await stripe.checkout.sessions.retrieve(active.stripe_session_id);
+      if (
+        existingSession.metadata?.uk_checkout_snapshot_id !== active.id
+        || existingSession.livemode !== livemode
+        || existingSession.currency !== active.currency
+        || existingSession.amount_total !== active.amount_minor
+      ) {
+        throw new Error("Active Stripe Checkout Session does not match its saved quote");
+      }
+
+      let paymentIntentStatus: string | undefined;
+      const getPaymentIntentId = () => typeof existingSession.payment_intent === "string"
+        ? existingSession.payment_intent
+        : existingSession.payment_intent?.id;
+      const inspectCompletedUnpaidPayment = async () => {
+        if (existingSession.status !== "complete" || existingSession.payment_status !== "unpaid") return;
+        const intentId = getPaymentIntentId();
+        if (!intentId) return;
+        const paymentIntent = await stripe.paymentIntents.retrieve(intentId);
+        if (
+          paymentIntent.livemode !== livemode
+          || paymentIntent.currency !== active.currency
+          || paymentIntent.amount !== active.amount_minor
+        ) {
+          throw new Error("Active payment does not match its saved checkout quote");
+        }
+        paymentIntentStatus = paymentIntent.status;
+      };
+      await inspectCompletedUnpaidPayment();
+
+      let action = getAbandonedCheckoutAction(existingSession, paymentIntentStatus);
+      if (action === "expire") {
+        existingSession = await expireOpenUnpaidCheckout(existingSession, {
+          retrieve: (sessionId) => stripe.checkout.sessions.retrieve(sessionId),
+          expire: (sessionId) => stripe.checkout.sessions.expire(sessionId),
+        });
+        await inspectCompletedUnpaidPayment();
+        action = getAbandonedCheckoutAction(existingSession, paymentIntentStatus);
+      }
+
+      if (action === "paid") {
+        const recovered = await recoverUkHostedCheckout(
+          stripe, db, existingSession.id, accountId, livemode, auth.user.id,
+        );
+        if (recovered.status !== "paid") {
+          return json({
+            error: "Your previous payment is being confirmed. Please do not pay again yet.",
+            status: "processing",
+          }, 409);
+        }
+        const { error: notificationError } = await db.rpc("notify_uk_hosted_order", {
+          p_snapshot_id: recovered.snapshotId,
+        });
+        if (notificationError) throw notificationError;
+        await sendUkOrderEmail(db, url, key, recovered.orderId, recovered.snapshotId);
+        await sendUkOrderPush(db, url, key, recovered.orderId, recovered.snapshotId);
+        return json({
+          error: "Your previous payment was successful. Your order is confirmed.",
+          status: "paid",
+          orderId: recovered.orderId,
+        }, 409);
+      }
+
+      if (action !== "close") {
+        return json({
+          error: "Your previous payment is still processing. We’re confirming its status; please do not pay again yet.",
+          status: "processing",
+        }, 409);
+      }
+
+      const { error: closeError } = await db.from("uk_hosted_checkout_sessions")
+        .update({ closed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("id", active.id).eq("user_id", auth.user.id)
+        .eq("stripe_session_id", existingSession.id).is("order_id", null).is("closed_at", null);
+      if (closeError) throw closeError;
     }
     const { data: rows, error: cartError } = await db.from("cart_items")
       .select("id,product_id,quantity,selected_size,selected_color,selected_variant_id,selected_variant_sku,updated_at")

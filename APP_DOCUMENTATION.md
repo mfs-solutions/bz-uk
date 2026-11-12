@@ -396,9 +396,16 @@ UK quotes apply the active shared platform commission rule to the same
 subtotal-and-shipping basis used by order creation, then apply existing offer
 discounts to the customer total. The paid order records any minor-unit
 difference from the shared order RPC for admin review rather than losing a
-captured payment. Stripe Checkout Sessions expire after 31 minutes because
-Stripe requires a minimum expiry window of 30 minutes. UK refunds remain
-manual.
+captured payment. Stripe Checkout Sessions have a 31-minute automatic expiry
+because Stripe requires a minimum expiry window of 30 minutes. On a new attempt,
+the quote function retrieves the buyer's prior session from Stripe and expires
+it immediately when it is still open and unpaid, then closes the matching
+database record before preparing a new quote. If Stripe reports a successful or
+possibly processing payment, the function recovers the order or blocks another
+charge rather than expiring it. Returning from Stripe's cancel action invokes
+the same server-side cancellation path. App termination or network loss cannot
+reliably notify the server; in that case, the next checkout attempt performs
+the safe cleanup. UK refunds remain manual.
 
 Production status was checked on 2026-11-12: both UK checkout migrations are
 applied; the quote, create, verify, and webhook functions are deployed; the

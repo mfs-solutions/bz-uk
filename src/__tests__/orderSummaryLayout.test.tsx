@@ -75,10 +75,47 @@ describe('checkout order summary layout', () => {
     expect(screen.getByText('Size: M • Color: Blue')).toBeInTheDocument();
     expect(screen.getByText('Qty: 2')).toBeInTheDocument();
     expect(screen.getByText('Price Details')).toBeInTheDocument();
-    expect(screen.getByText('Price Details').closest('.order-summary-price-panel')).toBeInTheDocument();
+    const pricePanel = screen.getByText('Price Details').closest('.order-summary-price-panel');
+    expect(pricePanel).toBeInTheDocument();
+    expect(screen.getByText('Items & Delivery').closest('.order-summary-items-delivery')).toBeInTheDocument();
+    expect(pricePanel?.querySelector('.order-summary-payment-action button')).toBeInTheDocument();
     expect(screen.queryByText('Footer component')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Change' }));
     expect(mocks.navigate).toHaveBeenCalledWith('/checkout/shipping');
+  });
+
+  it('keeps mobile delivery choices in the scrollable items section', async () => {
+    mocks.calculatePricing.mockResolvedValue({
+      subtotal: 200,
+      total: 200,
+      shipping: 0,
+      currency: 'INR',
+      items: [{
+        cartItemId: 'item-1',
+        productId: 'p1',
+        sourceCurrency: 'INR',
+        convertedUnitPrice: 100,
+      }],
+      codEligible: true,
+      codIneligibleItems: [],
+      ukDomesticShippingOptions: {
+        standard: { shipping: 0, total: 200, etd: '', estimatedDays: '11-15' },
+        premium: null,
+        express: { shipping: 40, total: 240, etd: '', estimatedDays: '2-4' },
+      },
+    });
+
+    render(<MemoryRouter><OrderSummaryPage /></MemoryRouter>);
+
+    await waitFor(() => {
+      expect(document.querySelector('.order-summary-mobile-delivery-options')).not.toBeNull();
+    });
+    const mobileDeliveryOptions = document.querySelector('.order-summary-mobile-delivery-options');
+    expect(mobileDeliveryOptions).toBeInTheDocument();
+    expect(mobileDeliveryOptions).toHaveClass('lg:hidden');
+    expect(mobileDeliveryOptions).toHaveTextContent('Standard');
+    expect(mobileDeliveryOptions).toHaveTextContent('Express');
+    expect(mobileDeliveryOptions?.closest('.order-summary-items-delivery')).not.toBeNull();
   });
 
   it('reuses the current cart quote when the order summary is reopened in the same tab', async () => {
@@ -100,13 +137,14 @@ describe('checkout order summary layout', () => {
     const firstRender = render(<MemoryRouter><OrderSummaryPage /></MemoryRouter>);
     await screen.findByText('Price Details');
     await waitFor(() => expect(sessionStorage.getItem('beauzead_checkout_quote')).not.toBeNull());
+    const publicPriceCallsBeforeReopen = mocks.fetchPublicPrices.mock.calls.length;
     firstRender.unmount();
 
     render(<MemoryRouter><OrderSummaryPage /></MemoryRouter>);
     await screen.findByText('Price Details');
     await waitFor(() => {
       expect(mocks.calculatePricing).toHaveBeenCalledTimes(1);
-      expect(mocks.fetchPublicPrices).toHaveBeenCalledTimes(1);
+      expect(mocks.fetchPublicPrices).toHaveBeenCalledTimes(publicPriceCallsBeforeReopen);
     });
   });
 });
