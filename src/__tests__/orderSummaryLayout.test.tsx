@@ -11,20 +11,32 @@ const mocks = vi.hoisted(() => ({
     cartItemId: 'item-1', quantity: 2, selectedSize: 'M', selectedColor: 'Blue',
     product: { id: 'p1', name: 'Test product', price: 100, currency: 'INR', image_url: '/product.png' },
   }],
+  fetchPublicPrices: vi.fn(),
+  calculatePricing: vi.fn(),
+  fetchMultiSellerTat: vi.fn(),
+  checkDeliveryServiceability: vi.fn(),
+  supabaseFrom: vi.fn(),
 }));
 
 vi.mock('../components/layout/Header', () => ({ Header: () => null }));
-vi.mock('../components/layout/Footer', () => ({ Footer: () => null }));
+vi.mock('../components/layout/Footer', () => ({ Footer: () => <footer>Footer component</footer> }));
 vi.mock('../contexts/AuthContext', () => ({
   useAuth: () => ({ user: mocks.user, currentAuthUser: null }),
 }));
 vi.mock('../contexts/CartContext', () => ({ useCart: () => ({ items: mocks.items }) }));
 vi.mock('../contexts/CurrencyContext', () => ({ useCurrency: () => ({ rates: mocks.rates }) }));
 vi.mock('../lib/pricingService', () => ({
-  fetchPublicProductPrices: vi.fn().mockResolvedValue({ data: [{ productId: 'p1', publicUnitPrice: 100 }] }),
+  fetchPublicProductPrices: mocks.fetchPublicPrices,
 }));
 vi.mock('../lib/checkoutPricingService', () => ({
-  calculateDestinationCheckoutPricing: vi.fn().mockReturnValue(new Promise(() => {})),
+  calculateDestinationCheckoutPricing: mocks.calculatePricing,
+}));
+vi.mock('../lib/tatService', () => ({
+  fetchMultiSellerTat: mocks.fetchMultiSellerTat,
+  checkDeliveryServiceability: mocks.checkDeliveryServiceability,
+}));
+vi.mock('../lib/supabase', () => ({
+  supabase: { from: mocks.supabaseFrom },
 }));
 vi.mock('react-router-dom', async (importOriginal) => ({
   ...(await importOriginal<typeof import('react-router-dom')>()),
@@ -35,6 +47,16 @@ describe('checkout order summary layout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    sessionStorage.clear();
+    mocks.fetchPublicPrices.mockResolvedValue({
+      data: [{ productId: 'p1', publicUnitPrice: 100 }], error: null,
+    });
+    mocks.calculatePricing.mockReturnValue(new Promise(() => {}));
+    mocks.fetchMultiSellerTat.mockResolvedValue({ maxTatDays: 0, maxExpectedDate: null });
+    mocks.checkDeliveryServiceability.mockResolvedValue({ serviceable: true, codAvailable: true });
+    mocks.supabaseFrom.mockReturnValue({
+      select: () => ({ in: () => Promise.resolve({ data: [{ id: 'p1', name: 'Test product', package_weight: 1 }] }) }),
+    });
     localStorage.setItem('beauzead_checkout_shipping', JSON.stringify({
       fullName: 'Test Buyer', street: 'Main Road', street2: 'Near market',
       city: 'Kannur', state: 'Kerala', postalCode: '670702', country: 'India',
@@ -53,7 +75,38 @@ describe('checkout order summary layout', () => {
     expect(screen.getByText('Size: M • Color: Blue')).toBeInTheDocument();
     expect(screen.getByText('Qty: 2')).toBeInTheDocument();
     expect(screen.getByText('Price Details')).toBeInTheDocument();
+    expect(screen.getByText('Price Details').closest('.order-summary-price-panel')).toBeInTheDocument();
+    expect(screen.queryByText('Footer component')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Change' }));
     expect(mocks.navigate).toHaveBeenCalledWith('/checkout/shipping');
+  });
+
+  it('reuses the current cart quote when the order summary is reopened in the same tab', async () => {
+    mocks.calculatePricing.mockResolvedValue({
+      subtotal: 200,
+      total: 200,
+      shipping: 0,
+      currency: 'INR',
+      items: [{
+        cartItemId: 'item-1',
+        productId: 'p1',
+        sourceCurrency: 'INR',
+        convertedUnitPrice: 100,
+      }],
+      codEligible: true,
+      codIneligibleItems: [],
+    });
+
+    const firstRender = render(<MemoryRouter><OrderSummaryPage /></MemoryRouter>);
+    await screen.findByText('Price Details');
+    await waitFor(() => expect(sessionStorage.getItem('beauzead_checkout_quote')).not.toBeNull());
+    firstRender.unmount();
+
+    render(<MemoryRouter><OrderSummaryPage /></MemoryRouter>);
+    await screen.findByText('Price Details');
+    await waitFor(() => {
+      expect(mocks.calculatePricing).toHaveBeenCalledTimes(1);
+      expect(mocks.fetchPublicPrices).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -5,7 +5,6 @@ import { useCart } from '../../contexts/CartContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Skeleton, ListSkeleton } from '../../components/common/Skeleton';
 import { Header } from '../../components/layout/Header';
-import { Footer } from '../../components/layout/Footer';
 import { MobileNav } from '../../components/layout/MobileNav';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { createUserAddress, deleteUserAddress, getUserAddresses, setDefaultUserAddress } from '../../lib/adminService';
@@ -15,7 +14,7 @@ import {
   type DestinationCheckoutPricing,
 } from '../../lib/checkoutPricingService';
 import { fetchPublicProductPrices } from '../../lib/pricingService';
-import { formatCurrency, hasCurrencyRate, isExchangeRateUnavailable } from '../../utils/currency';
+import { hasCurrencyRate, isExchangeRateUnavailable } from '../../utils/currency';
 import { detectLocationWithCaching } from '../../lib/locationService';
 import { fetchCountries, type Country } from '../../lib/shippingDataService';
 import {
@@ -701,7 +700,7 @@ const ShippingAddressPage: React.FC = () => {
     <Header />
     <div className="min-h-screen bg-slate-50 py-4 sm:py-6">
       <div className="max-w-[1100px] mx-auto px-4 pb-24 md:pb-5">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-5">
+        <div className="grid grid-cols-1 gap-5">
         {/* LEFT COLUMN */}
         <div>
         <ol className="ship-steps" aria-label="Checkout progress">
@@ -748,7 +747,7 @@ const ShippingAddressPage: React.FC = () => {
                       <Plus size={15} /> Add New
                     </button>
                   </div>
-                  <ul className="divide-y divide-slate-100">
+                  <ul className="max-h-[45vh] overflow-y-auto overscroll-contain pr-2 divide-y divide-slate-100 md:max-h-[32rem]">
                     {savedAddresses.map((address) => {
                       const selected = selectedAddressId === address.id;
                       const TypeIcon = address.address_type === 'work' ? Building2 : Home;
@@ -943,70 +942,36 @@ const ShippingAddressPage: React.FC = () => {
             </form>
           )}
 
+          {useExistingAddress && !addressesError && (
+            <div className="mt-4 space-y-3">
+              {!selectedAddressId && savedAddresses.length > 0 && (
+                <p className="text-sm text-slate-600">Select an address or add a new one to continue.</p>
+              )}
+              {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+              {fxUnavailableForCheckout && <p className="text-sm text-amber-700">Live currency conversion is temporarily unavailable. Checkout is paused until rates are available.</p>}
+              {pricingLoading && <p className="text-sm text-slate-600" role="status">Checking shipping rates...</p>}
+              {(publicPriceLoading || hasUnresolvedPublicPrices) && <p className="text-sm text-slate-600" role="status">Loading final item prices...</p>}
+            </div>
+          )}
         </div>
         </div>{/* END LEFT COLUMN */}
 
-        {/* RIGHT COLUMN — Order Summary */}
-        <div>
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-5 sticky top-24">
-            <h2 className="text-base sm:text-lg font-bold text-slate-900 mb-3">Order summary</h2>
-
-            <div className="space-y-1.5 sm:space-y-2 mb-2 sm:mb-3">
-              <div className="flex justify-between text-[13px] sm:text-[14px]">
-                <span className="text-[#555]">Items ({activeCartItems.length})</span>
-                <span>{formatCurrency(pricing ? pricing.subtotal : Number.NaN, targetCurrency)}</span>
-              </div>
-              {(pricing?.offerDiscount || 0) > 0 && (
-                <div className="flex justify-between text-[13px] sm:text-[14px] text-[#067d62] font-semibold">
-                  <span>Savings</span>
-                  <span>-{formatCurrency(pricing?.offerDiscount || 0, targetCurrency)}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-[13px] sm:text-[14px]">
-                <span className="text-[#555]">Shipping</span>
-                <span className="text-[#067d62] font-semibold">
-                  {(!pricing || pricingLoading)
-                    ? <span className="inline-block animate-pulse text-gray-400 text-xs">Calculating...</span>
-                    : (pricing.shipping || 0) === 0 ? 'FREE' : formatCurrency(pricing.shipping || 0, targetCurrency)}
-                </span>
-              </div>
-              {pricingLoading && (
-                <div className="text-[11px] sm:text-xs text-gray-400">Checking table rates and carrier fallback...</div>
-              )}
-            </div>
-
-            <div className="border-t border-slate-200 pt-2 sm:pt-3 mt-2 sm:mt-3 flex justify-between text-[15px] sm:text-[18px] font-bold text-slate-900">
-              <span>Order Total</span>
-              <span>{formatCurrency(pricing ? pricing.total : Number.NaN, targetCurrency)}</span>
-            </div>
-
-            <div className="flex items-center justify-center gap-1.5 text-[11px] sm:text-[12px] text-emerald-700 mt-3">
-              🔒 Secure checkout powered by Stripe
-            </div>
-            {useExistingAddress && !addressesError && (
-              <div className="mt-4">
-                {!selectedAddressId && <p className="mb-3 text-sm text-slate-600">Select an address or add a new one to continue.</p>}
-                {error && <div role="alert" className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-                {fxUnavailableForCheckout && <p className="mb-3 text-sm text-amber-700">Live currency conversion is temporarily unavailable. Checkout is paused until rates are available.</p>}
-                {pricingLoading && <p className="mb-3 text-sm text-slate-600" role="status">Checking shipping rates...</p>}
-                {(publicPriceLoading || hasUnresolvedPublicPrices) && <p className="mb-3 text-sm text-slate-600" role="status">Loading final item prices...</p>}
-                <button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={!selectedAddressId || isLoading || pricingLoading || publicPriceLoading || hasUnresolvedPublicPrices || fxUnavailableForCheckout}
-                  className="ship-primary-btn"
-                >
-                  {isLoading ? 'Saving...' : (pricingLoading || publicPriceLoading || hasUnresolvedPublicPrices) ? 'Refreshing shipping...' : 'Continue to review'}
-                </button>
-              </div>
-            )}
+        {useExistingAddress && !addressesError && savedAddresses.length > 0 && (
+          <div className="shipping-continue-bar">
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!selectedAddressId || isLoading || pricingLoading || publicPriceLoading || hasUnresolvedPublicPrices || fxUnavailableForCheckout}
+              className="ship-primary-btn mx-auto block max-w-[1100px]"
+            >
+              {isLoading ? 'Saving...' : (pricingLoading || publicPriceLoading || hasUnresolvedPublicPrices) ? 'Refreshing shipping...' : 'Continue to review'}
+            </button>
           </div>
-        </div>
+        )}
         </div>{/* END GRID */}
       </div>
     </div>
     <MobileNav />
-    <Footer />
     </>
   );
 };

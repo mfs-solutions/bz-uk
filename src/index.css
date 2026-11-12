@@ -771,6 +771,75 @@
     @apply w-full py-3.5 bg-[#6D28D9] hover:bg-[#5b21b6] text-white rounded-xl text-[15px] font-bold transition-colors disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed;
   }
 
+  .shipping-continue-bar {
+    position: fixed;
+    z-index: 40;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid #e2e8f0;
+    background: rgb(255 255 255 / 96%);
+    box-shadow: 0 -4px 12px rgb(15 23 42 / 8%);
+    backdrop-filter: blur(8px);
+  }
+
+  .order-summary-content {
+    padding-bottom: 60dvh;
+  }
+
+  .order-summary-price-panel {
+    position: fixed;
+    z-index: 40;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    max-height: 60dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
+    background: #eaeded;
+    box-shadow: 0 -4px 12px rgb(15 23 42 / 10%);
+  }
+
+  body.native-app .shipping-continue-bar {
+    bottom: calc(3.75rem + env(safe-area-inset-bottom));
+  }
+
+  body.native-app .order-summary-content {
+    padding-bottom: calc(60dvh + 3.75rem + env(safe-area-inset-bottom));
+  }
+
+  body.native-app .order-summary-price-panel {
+    bottom: calc(3.75rem + env(safe-area-inset-bottom));
+  }
+
+  @media (min-width: 768px) {
+    .shipping-continue-bar {
+      position: static;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      backdrop-filter: none;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .order-summary-content {
+      padding-bottom: 1.25rem;
+    }
+
+    .order-summary-price-panel {
+      position: static;
+      max-height: none;
+      overflow: visible;
+      padding: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+  }
+
   .acct-panel {
     @apply bg-white rounded-2xl border border-slate-200/90 shadow-sm p-5 sm:p-8 min-w-0;
   }

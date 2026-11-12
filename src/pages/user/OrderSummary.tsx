@@ -14,13 +14,14 @@ import { fetchPublicProductPrices } from '../../lib/pricingService';
 import { supabase } from '../../lib/supabase';
 import { formatCurrency, hasCurrencyRate, isExchangeRateUnavailable } from '../../utils/currency';
 import { fetchMultiSellerTat, checkDeliveryServiceability } from '../../lib/tatService';
-import { Footer } from '../../components/layout/Footer';
 import {
   IS_UK_STOREFRONT,
   isUKCountry,
   STOREFRONT_CURRENCY_CODE,
   STOREFRONT_COUNTRY_NAME,
 } from '../../config/market';
+import { isNativePlatform } from '../../mobile/nativePlatform';
+import { resolveCheckoutPaymentProvider } from '../../lib/paymentProvider';
 
 interface ShippingData {
   street: string;
@@ -37,6 +38,51 @@ interface ShippingData {
   selectedAddressId?: string;
 }
 
+interface OrderSummaryQuoteCache {
+  key: string;
+  pricing: DestinationCheckoutPricing;
+  estimatedDeliveryDate: string | null;
+  pincodeNotServiceable: boolean;
+  pincodeCodAvailable: boolean | null;
+  productValidationWarning: string | null;
+}
+
+const ORDER_SUMMARY_PUBLIC_PRICES_CACHE = 'beauzead_checkout_public_prices';
+const ORDER_SUMMARY_QUOTE_CACHE = 'beauzead_checkout_quote';
+
+const readCheckoutCache = (key: string): unknown => {
+  try {
+    const stored = sessionStorage.getItem(key);
+    return stored ? JSON.parse(stored) as unknown : null;
+  } catch (error) {
+    console.warn('Unable to read checkout price cache:', error);
+    return null;
+  }
+};
+
+const writeCheckoutCache = (key: string, value: unknown): void => {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn('Unable to save checkout price cache:', error);
+  }
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const getEdgeFunctionErrorMessage = async (error: unknown, fallback: string): Promise<string> => {
+  if (isRecord(error) && error.context instanceof Response) {
+    try {
+      const details: unknown = await error.context.clone().json();
+      if (isRecord(details) && typeof details.error === 'string') return details.error;
+    } catch (parseError) {
+      console.warn('Unable to read checkout function error response:', parseError);
+    }
+  }
+  return error instanceof Error && error.message ? error.message : fallback;
+};
+
 const UUID_LIKE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const getProductMetaLabel = (product: { category?: string; category_name?: string | null }) => {
@@ -51,7 +97,7 @@ const OrderSummaryPage: React.FC = () => {
   const location = useLocation();
   const { items } = useCart();
   const { user, currentAuthUser } = useAuth();
-  const { rates } = useCurrency();
+  const { rates, loading: currencyRatesLoading } = useCurrency();
 
   const [shippingData, setShippingData] = useState<ShippingData | null>(null);
   const [pricing, setPricing] = useState<DestinationCheckoutPricing | null>(null);
@@ -65,9 +111,20 @@ const OrderSummaryPage: React.FC = () => {
   const [shippingTier, setShippingTier] = useState<'standard' | 'premium' | 'express'>('standard');
   const [pincodeCodAvailable, setPincodeCodAvailable] = useState<boolean | null>(null);
   const [proceedError, setProceedError] = useState<string | null>(null);
+  const [proceedLoading, setProceedLoading] = useState(false);
+  const [ukHostedCheckoutSnapshot, setUkHostedCheckoutSnapshot] = useState<{ key: string; id: string } | null>(null);
   const [publicPriceMap, setPublicPriceMap] = useState<Record<string, number>>({});
-  const [publicPriceLoading, setPublicPriceLoading] = useState(false);
+  const [publicPriceLoading, setPublicPriceLoading] = useState(true);
   const pricingRequestRef = useRef(0);
+  const publicPriceRequestRef = useRef(0);
+  const proceedInFlightRef = useRef(false);
+  const useUkHostedCheckout = IS_UK_STOREFRONT
+    && !isNativePlatform
+    && resolveCheckoutPaymentProvider() === 'stripe'
+    && import.meta.env.VITE_UK_HOSTED_CHECKOUT === 'true'
+    && typeof window !== 'undefined'
+    && ['bzead.uk', 'www.bzead.uk', 'main.d2532vkjbofjsn.amplifyapp.com']
+      .includes(window.location.hostname.toLowerCase());
 
   const activeCartItems = useMemo(
     () => items.filter((item) => selectedCartItemIds.includes(item.cartItemId)),
@@ -79,10 +136,13 @@ const OrderSummaryPage: React.FC = () => {
     : shippingData?.country || user?.country || '';
 
   useEffect(() => {
+    const requestId = publicPriceRequestRef.current + 1;
+    publicPriceRequestRef.current = requestId;
+
     const loadPublicPrices = async () => {
       if (!destinationCountryForPricing) {
         setPublicPriceMap({});
-        setPublicPriceLoading(true);
+        setPublicPriceLoading(false);
         return;
       }
 
@@ -92,17 +152,47 @@ const OrderSummaryPage: React.FC = () => {
         return;
       }
 
-      setPublicPriceLoading(true);
-      const { data } = await fetchPublicProductPrices(
-        activeCartItems.map((item) => item.product.id),
-        destinationCountryForPricing,
-      );
-      const map: Record<string, number> = {};
-      (data || []).forEach((item) => {
-        map[item.productId] = item.publicUnitPrice;
+      const cacheKey = JSON.stringify({
+        country: destinationCountryForPricing.trim().toUpperCase(),
+        productIds: activeCartItems.map((item) => item.product.id).sort(),
       });
-      setPublicPriceMap(map);
-      setPublicPriceLoading(false);
+      const cachedPrices = readCheckoutCache(ORDER_SUMMARY_PUBLIC_PRICES_CACHE);
+      if (
+        typeof cachedPrices === 'object'
+        && cachedPrices !== null
+        && 'key' in cachedPrices
+        && cachedPrices.key === cacheKey
+        && 'prices' in cachedPrices
+        && typeof cachedPrices.prices === 'object'
+        && cachedPrices.prices !== null
+        && Object.values(cachedPrices.prices).every((price) => typeof price === 'number' && Number.isFinite(price))
+      ) {
+        setPublicPriceMap(cachedPrices.prices as Record<string, number>);
+        setPublicPriceLoading(false);
+        return;
+      }
+
+      setPublicPriceLoading(true);
+      try {
+        const { data, error } = await fetchPublicProductPrices(
+          activeCartItems.map((item) => item.product.id),
+          destinationCountryForPricing,
+        );
+        if (publicPriceRequestRef.current !== requestId) return;
+        const map: Record<string, number> = {};
+        (data || []).forEach((item) => {
+          map[item.productId] = item.publicUnitPrice;
+        });
+        setPublicPriceMap(map);
+        if (!error) writeCheckoutCache(ORDER_SUMMARY_PUBLIC_PRICES_CACHE, { key: cacheKey, prices: map });
+      } catch (error) {
+        if (publicPriceRequestRef.current === requestId) {
+          console.error('Failed to load checkout product prices:', error);
+          setPublicPriceMap({});
+        }
+      } finally {
+        if (publicPriceRequestRef.current === requestId) setPublicPriceLoading(false);
+      }
     };
 
     void loadPublicPrices();
@@ -183,9 +273,42 @@ const OrderSummaryPage: React.FC = () => {
       return;
     }
 
+    if (currencyRatesLoading) return;
+    if (publicPriceLoading) return;
+
     if (hasUnresolvedPublicPrices) {
       setPricingLoading(false);
       setEstimatedDeliveryDate(null);
+      return;
+    }
+
+    const cacheKey = JSON.stringify({
+      market: IS_UK_STOREFRONT ? 'GB' : 'GLOBAL',
+      country: destinationCountry.trim().toUpperCase(),
+      postalCode: String(shippingData?.postalCode || '').trim().toUpperCase(),
+      items: pricingItems,
+    });
+    const cachedQuote = readCheckoutCache(ORDER_SUMMARY_QUOTE_CACHE);
+    if (
+      typeof cachedQuote === 'object'
+      && cachedQuote !== null
+      && 'key' in cachedQuote
+      && cachedQuote.key === cacheKey
+      && 'pricing' in cachedQuote
+      && typeof cachedQuote.pricing === 'object'
+      && cachedQuote.pricing !== null
+      && 'total' in cachedQuote.pricing
+      && typeof cachedQuote.pricing.total === 'number'
+    ) {
+      const quote = cachedQuote as OrderSummaryQuoteCache;
+      setPricing(quote.pricing);
+      setEstimatedDeliveryDate(quote.estimatedDeliveryDate);
+      setPincodeNotServiceable(quote.pincodeNotServiceable);
+      setPincodeCodAvailable(quote.pincodeCodAvailable);
+      setProductValidationWarning(quote.productValidationWarning);
+      setPricingError(null);
+      setPricingLoading(false);
+      setDeliveryEstimateLoading(false);
       return;
     }
 
@@ -194,6 +317,9 @@ const OrderSummaryPage: React.FC = () => {
     setPricingLoading(true);
     setDeliveryEstimateLoading(true);
     setPricingError(null);
+    setPincodeNotServiceable(false);
+    setPincodeCodAvailable(null);
+    setProductValidationWarning(null);
 
     void (async () => {
       try {
@@ -214,12 +340,26 @@ const OrderSummaryPage: React.FC = () => {
           .in('id', productIds);
         if (pricingRequestRef.current !== requestId) return;
         const missingWeight = (productWeights || []).filter((p: any) => !p.package_weight || Number(p.package_weight) <= 0);
+        const nextProductValidationWarning = missingWeight.length > 0
+          ? `Missing package weight for: ${missingWeight.map((p: any) => p.name).join(', ')}. Shipping cost may be inaccurate.`
+          : null;
         if (missingWeight.length > 0) {
-          const names = missingWeight.map((p: any) => p.name).join(', ');
-          setProductValidationWarning(`Missing package weight for: ${names}. Shipping cost may be inaccurate.`);
+          setProductValidationWarning(nextProductValidationWarning);
         } else {
           setProductValidationWarning(null);
         }
+
+        let nextPincodeNotServiceable = false;
+        let nextPincodeCodAvailable: boolean | null = null;
+        let nextEstimatedDeliveryDate: string | null = null;
+        const saveQuote = () => writeCheckoutCache(ORDER_SUMMARY_QUOTE_CACHE, {
+          key: cacheKey,
+          pricing: data,
+          estimatedDeliveryDate: nextEstimatedDeliveryDate,
+          pincodeNotServiceable: nextPincodeNotServiceable,
+          pincodeCodAvailable: nextPincodeCodAvailable,
+          productValidationWarning: nextProductValidationWarning,
+        } satisfies OrderSummaryQuoteCache);
 
         // Check serviceability BEFORE TAT — only for domestic orders
         const destinationPin = String(shippingData?.postalCode || '').replace(/\s+/g, '');
@@ -235,17 +375,22 @@ const OrderSummaryPage: React.FC = () => {
         if (!isInternationalOrder && destinationPin.length === 6) {
           const svcResult = await checkDeliveryServiceability(destinationPin, firstSellerId || userId);
           if (pricingRequestRef.current !== requestId) return;
-          setPincodeNotServiceable(!svcResult.serviceable);
+          nextPincodeNotServiceable = !svcResult.serviceable;
+          setPincodeNotServiceable(nextPincodeNotServiceable);
           // Extract pincode-level COD availability
-          setPincodeCodAvailable(svcResult.codAvailable ?? false);
+          nextPincodeCodAvailable = svcResult.codAvailable ?? false;
+          setPincodeCodAvailable(nextPincodeCodAvailable);
           if (!svcResult.serviceable) {
+            saveQuote();
             setDeliveryEstimateLoading(false);
             return;
           }
         } else if (isInternationalOrder) {
           // International orders — skip domestic serviceability check; COD never available
           setPincodeNotServiceable(false);
+          nextPincodeNotServiceable = false;
           setPincodeCodAvailable(false);
+          nextPincodeCodAvailable = false;
         }
 
         // Compute estimated delivery date — use carrier-aware TAT for domestic
@@ -253,9 +398,9 @@ const OrderSummaryPage: React.FC = () => {
           const tatResult = await fetchMultiSellerTat(productIds, destinationPin, userId);
           if (pricingRequestRef.current !== requestId) return;
           if (tatResult.maxTatDays > 0 && tatResult.maxExpectedDate) {
-            setEstimatedDeliveryDate(
-              new Date(tatResult.maxExpectedDate).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
-            );
+            nextEstimatedDeliveryDate = new Date(tatResult.maxExpectedDate)
+              .toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+            setEstimatedDeliveryDate(nextEstimatedDeliveryDate);
           } else {
             setEstimatedDeliveryDate(null);
           }
@@ -263,6 +408,7 @@ const OrderSummaryPage: React.FC = () => {
           // International: TAT is not available via domestic APIs; clear estimate
           setEstimatedDeliveryDate(null);
         }
+        saveQuote();
         setDeliveryEstimateLoading(false);
       } catch (err) {
         console.error('Failed to refresh checkout pricing:', err);
@@ -281,7 +427,7 @@ const OrderSummaryPage: React.FC = () => {
         }
       }
     })();
-  }, [destinationCountryForPricing, shippingData?.postalCode, pricingItems, rates, activeCartItems, hasUnresolvedPublicPrices]);
+  }, [destinationCountryForPricing, shippingData?.postalCode, pricingItems, rates, activeCartItems, hasUnresolvedPublicPrices, publicPriceLoading, currencyRatesLoading]);
 
   const pricingByProductId = useMemo(
     () => new Map((pricing?.items || []).map((item) => [item.productId, item])),
@@ -364,6 +510,7 @@ const OrderSummaryPage: React.FC = () => {
   const calculateTotal = () => displayTotal;
 
   const handleProceedToPayment = async () => {
+    if (proceedInFlightRef.current) return;
     setProceedError(null);
 
     const userId = user?.id || currentAuthUser?.userId;
@@ -421,6 +568,9 @@ const OrderSummaryPage: React.FC = () => {
       return;
     }
 
+    proceedInFlightRef.current = true;
+    setProceedLoading(true);
+
     // M14: Re-check stock at payment stage
     try {
       const productIds = activeCartItems.map((item) => item.product.id);
@@ -439,11 +589,15 @@ const OrderSummaryPage: React.FC = () => {
         }
         if (outOfStock.length > 0) {
           setProceedError(`Insufficient stock for: ${outOfStock.join(', ')}. Please update quantities or remove items.`);
+          proceedInFlightRef.current = false;
+          setProceedLoading(false);
           return;
         }
       }
     } catch {
       setProceedError('Could not verify stock availability. Please try again.');
+      proceedInFlightRef.current = false;
+      setProceedLoading(false);
       return;
     }
 
@@ -455,6 +609,93 @@ const OrderSummaryPage: React.FC = () => {
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
     if (checkoutItems.length !== activeCartItems.length) {
       setProceedError('A selected item or variant price could not be verified. Return to your cart and select it again.');
+      proceedInFlightRef.current = false;
+      setProceedLoading(false);
+      return;
+    }
+
+    if (useUkHostedCheckout) {
+      const cartItemIds = checkoutItems
+        .map(({ item }) => item.cartItemId)
+        .filter((id): id is string => Boolean(id));
+      if (cartItemIds.length !== checkoutItems.length) {
+        setProceedError('Your selected cart items could not be verified. Return to your cart and try again.');
+        proceedInFlightRef.current = false;
+        setProceedLoading(false);
+        return;
+      }
+
+      const quoteBody = {
+        cartItemIds,
+        shippingAddress: {
+          street: shippingData.street,
+          city: shippingData.city,
+          state: shippingData.state,
+          postalCode: shippingData.postalCode,
+          country: shippingData.country,
+          countryCode: shippingData.countryCode,
+        },
+        shippingTier: tierOptions ? shippingTier : 'standard',
+        customerName: shippingData.fullName || user?.full_name || user?.first_name || '',
+        customerPhone: shippingData.phone,
+        notes: shippingData.notes,
+        estimatedDeliveryDate: activeOption?.etd,
+        estimatedDeliveryDays: activeOption?.estimatedDays,
+      };
+      const quoteKey = JSON.stringify(quoteBody);
+      try {
+        let snapshotId = ukHostedCheckoutSnapshot?.key === quoteKey
+          ? ukHostedCheckoutSnapshot.id
+          : null;
+
+        if (!snapshotId) {
+          const { data: quote, error: quoteError } = await supabase.functions.invoke(
+            'quote-uk-hosted-checkout',
+            { body: quoteBody },
+          );
+          if (quoteError) {
+            throw new Error(await getEdgeFunctionErrorMessage(
+              quoteError,
+              'Unable to verify your checkout. Please return to review and try again.',
+            ));
+          }
+          if (
+            !isRecord(quote)
+            || typeof quote.snapshotId !== 'string'
+            || typeof quote.total !== 'number'
+            || typeof quote.currency !== 'string'
+            || quote.currency !== 'GBP'
+          ) {
+            throw new Error('The checkout quote is invalid. Please return to review.');
+          }
+          snapshotId = quote.snapshotId;
+          setUkHostedCheckoutSnapshot({ key: quoteKey, id: snapshotId });
+        }
+
+        const { data: checkout, error: checkoutError } = await supabase.functions.invoke(
+          'create-uk-hosted-checkout',
+          { body: { snapshotId } },
+        );
+        if (checkoutError) {
+          throw new Error(await getEdgeFunctionErrorMessage(
+            checkoutError,
+            'Unable to open the payment page. Please check the status before trying again.',
+          ));
+        }
+        if (!isRecord(checkout) || typeof checkout.checkoutUrl !== 'string') {
+          throw new Error('The payment page address could not be verified.');
+        }
+        const destination = new URL(checkout.checkoutUrl);
+        if (destination.protocol !== 'https:' || destination.hostname !== 'checkout.stripe.com') {
+          throw new Error('The payment page address could not be verified.');
+        }
+        window.location.assign(destination.href);
+      } catch (error) {
+        console.error('[OrderSummary] UK Stripe hosted checkout failed:', error);
+        setProceedError(error instanceof Error ? error.message : 'Unable to open the Stripe payment page.');
+        proceedInFlightRef.current = false;
+        setProceedLoading(false);
+      }
       return;
     }
 
@@ -522,7 +763,7 @@ const OrderSummaryPage: React.FC = () => {
     <>
     <Header />
     <div className="min-h-screen bg-[#eaeded] py-4">
-      <div className="max-w-[1100px] mx-auto px-3 sm:px-4 pb-24 md:pb-5">
+      <div className="order-summary-content max-w-[1100px] mx-auto px-3 sm:px-4 pb-24 md:pb-5">
         <h1 className="mb-4 text-xl font-bold text-[#0f1111]">Order Summary</h1>
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-5">
           <div className="space-y-2 sm:space-y-4">
@@ -638,8 +879,8 @@ const OrderSummaryPage: React.FC = () => {
             </div>
           </div>
 
-          <div>
-            <div className="bg-white border border-[#ddd] rounded-lg p-5 sticky top-5">
+          <div className="order-summary-price-panel">
+            <div className="bg-white border border-[#ddd] rounded-lg p-5 lg:sticky lg:top-5">
               <h2 className="text-[16px] font-bold text-[#0f1111] mb-4">Price Details</h2>
 
               <div className="space-y-2 mb-3">
@@ -706,6 +947,7 @@ const OrderSummaryPage: React.FC = () => {
                         value="standard"
                         checked={shippingTier === 'standard'}
                         onChange={() => setShippingTier('standard')}
+                        disabled={Boolean(ukHostedCheckoutSnapshot)}
                         className="sr-only"
                       />
                       <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
@@ -756,6 +998,7 @@ const OrderSummaryPage: React.FC = () => {
                           value="premium"
                           checked={shippingTier === 'premium'}
                           onChange={() => setShippingTier('premium')}
+                          disabled={Boolean(ukHostedCheckoutSnapshot)}
                           className="sr-only"
                         />
                         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
@@ -807,6 +1050,7 @@ const OrderSummaryPage: React.FC = () => {
                           value="express"
                           checked={shippingTier === 'express'}
                           onChange={() => setShippingTier('express')}
+                          disabled={Boolean(ukHostedCheckoutSnapshot)}
                           className="sr-only"
                         />
                         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
@@ -918,10 +1162,12 @@ const OrderSummaryPage: React.FC = () => {
               ) : (
                 <button
                   onClick={handleProceedToPayment}
-                  disabled={!isPricingReady}
+                  disabled={!isPricingReady || proceedLoading}
                   className="w-full py-3.5 bg-[#ffd814] hover:bg-[#f7ca00] border border-[#fcd200] disabled:bg-gray-200 disabled:border-gray-300 text-[#0f1111] rounded-lg text-[15px] font-bold cursor-pointer transition-colors"
                 >
-                  {pricingLoading
+                  {proceedLoading
+                    ? useUkHostedCheckout ? 'Opening Stripe checkout...' : 'Verifying checkout...'
+                    : pricingLoading
                     ? 'Refreshing Shipping...'
                     : deliveryEstimateLoading
                       ? 'Fetching Delivery Date...'
@@ -930,7 +1176,7 @@ const OrderSummaryPage: React.FC = () => {
                     : pricingError
                       ? 'Checkout config unavailable'
                     : isPricingReady
-                      ? 'Proceed to Payment'
+                      ? useUkHostedCheckout ? 'Continue to Stripe' : 'Proceed to Payment'
                       : 'Resolve checkout issues to continue'}
                 </button>
               )}
@@ -956,7 +1202,6 @@ const OrderSummaryPage: React.FC = () => {
       </div>
       </div>
       <MobileNav />
-    <Footer />
     </>
   );
 };

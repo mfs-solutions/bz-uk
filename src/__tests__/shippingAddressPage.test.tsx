@@ -28,7 +28,7 @@ vi.mock('../config/market', () => ({
   isUKCountry: (country: string) => ['united kingdom', 'gb', 'uk'].includes(country.toLowerCase()),
 }));
 vi.mock('../components/layout/Header', () => ({ Header: () => null }));
-vi.mock('../components/layout/Footer', () => ({ Footer: () => null }));
+vi.mock('../components/layout/Footer', () => ({ Footer: () => <footer>Footer component</footer> }));
 vi.mock('../components/layout/MobileNav', () => ({ MobileNav: () => null }));
 vi.mock('../contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -82,6 +82,10 @@ describe('checkout shipping addresses', () => {
     expect(screen.getAllByRole('radio')).toHaveLength(1);
     expect(screen.getByRole('radio', { name: /12 High Street/ })).toBeChecked();
     expect(screen.queryByRole('textbox', { name: /street address/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/order summary/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Footer component')).not.toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'Saved addresses' }).querySelector('ul'))
+      .toHaveClass('overflow-y-auto');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Continue to review' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Continue to review' }));
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith('/checkout/review'));
