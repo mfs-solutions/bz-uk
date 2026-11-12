@@ -7,8 +7,6 @@ import {
   expireOpenUnpaidCheckout,
   getAbandonedCheckoutAction,
 } from "../_shared/uk-checkout-lifecycle.ts";
-import { recoverUkHostedCheckout } from "../_shared/uk-hosted-checkout.ts";
-import { sendUkOrderEmail, sendUkOrderPush } from "../_shared/uk-order-email.ts";
 
 const origins = new Set([
   "https://bzead.uk",
@@ -151,25 +149,9 @@ Deno.serve(async (req: Request) => {
       }
 
       if (action === "paid") {
-        const recovered = await recoverUkHostedCheckout(
-          stripe, db, existingSession.id, accountId, livemode, auth.user.id,
-        );
-        if (recovered.status !== "paid") {
-          return json({
-            error: "Your previous payment is being confirmed. Please do not pay again yet.",
-            status: "processing",
-          }, 409);
-        }
-        const { error: notificationError } = await db.rpc("notify_uk_hosted_order", {
-          p_snapshot_id: recovered.snapshotId,
-        });
-        if (notificationError) throw notificationError;
-        await sendUkOrderEmail(db, url, key, recovered.orderId, recovered.snapshotId);
-        await sendUkOrderPush(db, url, key, recovered.orderId, recovered.snapshotId);
         return json({
-          error: "Your previous payment was successful. Your order is confirmed.",
-          status: "paid",
-          orderId: recovered.orderId,
+          error: "Your previous payment is being confirmed. Please do not pay again yet.",
+          status: "processing",
         }, 409);
       }
 

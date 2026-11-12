@@ -377,12 +377,20 @@ Stripe configuration uses `UK_STRIPE_SECRET_KEY`, `UK_STRIPE_ACCOUNT_ID`, and
 a separate `UK_STRIPE_WEBHOOK_SECRET`; the UK webhook does not replace the
 existing Stripe webhook. The live endpoint is
 `https://aiiefgjfftmerayihpbv.supabase.co/functions/v1/uk-hosted-checkout-webhook`
-and subscribes to `checkout.session.completed`,
-`checkout.session.async_payment_succeeded`, and `checkout.session.expired`.
-The webhook handles paid and expired Checkout Sessions, and paid-order
-recovery is idempotent across webhook and browser return. Buyer, seller, and
+subscribes to `checkout.session.completed`,
+`checkout.session.async_payment_succeeded`,
+`checkout.session.async_payment_failed`, and `checkout.session.expired`.
+The webhook handles paid, terminally failed, and expired Checkout Sessions.
+It is the only path that creates/reconciles a paid UK order; the browser return
+verifies Stripe and the authenticated order, then polls while webhook recovery
+is pending. Terminal asynchronous failures are recorded on the existing
+checkout-session row, not in a second payment table. Paid-order recovery is
+idempotent. Buyer, seller, and
 admin in-app notifications, email, and push use the existing services with
 retry-safe UK state.
+The return-experience update adds
+`supabase/migrations/20261112193000_uk_checkout_failure_confirmation.sql`;
+apply it before deploying the updated verification and webhook functions.
 
 UK checkout intentionally does not reserve or permanently decrement shared
 inventory. If payment succeeds after stock is sold elsewhere, the UK recovery
@@ -401,16 +409,21 @@ because Stripe requires a minimum expiry window of 30 minutes. On a new attempt,
 the quote function retrieves the buyer's prior session from Stripe and expires
 it immediately when it is still open and unpaid, then closes the matching
 database record before preparing a new quote. If Stripe reports a successful or
-possibly processing payment, the function recovers the order or blocks another
-charge rather than expiring it. Returning from Stripe's cancel action invokes
+possibly processing payment, the quote function blocks another charge until
+webhook order recovery is visible rather than expiring it. Returning from
+Stripe's cancel action invokes
 the same server-side cancellation path. App termination or network loss cannot
 reliably notify the server; in that case, the next checkout attempt performs
 the safe cleanup. UK refunds remain manual.
 
-Production status was checked on 2026-11-12: both UK checkout migrations are
-applied; the quote, create, verify, and webhook functions are deployed; the
-dedicated live Stripe webhook and required UK Stripe secrets are configured;
-and both the backend flag and deployed Amplify client gate are enabled. An
+Production status was checked on 2026-11-12: the original UK checkout
+migrations are applied; the quote, create, verify, and webhook functions are
+deployed; the dedicated live Stripe webhook and required UK Stripe secrets are
+configured; and both the backend flag and deployed Amplify client gate are
+enabled. The payment-return update described above has not yet been deployed:
+apply its migration, deploy the updated quote, verify, and webhook functions,
+ensure the Stripe Dashboard endpoint subscribes to
+`checkout.session.async_payment_failed`, and release the frontend build. An
 end-to-end payment has not yet been performed, so verify checkout and order
 recovery with an approved test procedure before relying on live purchases.
 For a new environment, apply the UK-only migrations, deploy the UK functions,

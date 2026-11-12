@@ -43,6 +43,7 @@ Deno.serve(async (req: Request) => {
   }
   if (event.type !== "checkout.session.completed" &&
       event.type !== "checkout.session.async_payment_succeeded" &&
+      event.type !== "checkout.session.async_payment_failed" &&
       event.type !== "checkout.session.expired") {
     return json({ received: true }, 200);
   }
@@ -69,6 +70,47 @@ Deno.serve(async (req: Request) => {
           .is("closed_at", null);
         if (error) throw error;
       }
+      return json({ received: true }, 200);
+    }
+    if (event.type === "checkout.session.async_payment_failed") {
+      const session = await stripe.checkout.sessions.retrieve(eventSession.id);
+      const snapshotId = session.metadata?.uk_checkout_snapshot_id;
+      const paymentIntentId = typeof session.payment_intent === "string"
+        ? session.payment_intent
+        : session.payment_intent?.id;
+      if (
+        !snapshotId
+        || session.status !== "complete"
+        || session.payment_status !== "unpaid"
+        || session.livemode !== livemode
+        || session.currency !== "gbp"
+        || !paymentIntentId
+      ) {
+        return json({ received: true }, 200);
+      }
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      if (
+        paymentIntent.livemode !== livemode
+        || paymentIntent.currency !== session.currency
+        || paymentIntent.amount !== session.amount_total
+        || (paymentIntent.status !== "requires_payment_method" && paymentIntent.status !== "canceled")
+      ) {
+        return json({ received: true }, 200);
+      }
+      const { error } = await db.from("uk_hosted_checkout_sessions")
+        .update({
+          payment_failure_confirmed_at: new Date().toISOString(),
+          closed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", snapshotId)
+        .eq("stripe_session_id", session.id)
+        .eq("stripe_account_id", accountId)
+        .eq("livemode", livemode)
+        .eq("amount_minor", session.amount_total)
+        .eq("currency", session.currency)
+        .is("order_id", null);
+      if (error) throw error;
       return json({ received: true }, 200);
     }
     const result = await recoverUkHostedCheckout(stripe, db, eventSession.id, accountId, livemode);

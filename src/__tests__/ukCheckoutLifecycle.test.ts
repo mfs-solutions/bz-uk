@@ -3,10 +3,69 @@ import {
   expireOpenUnpaidCheckout,
   getAbandonedCheckoutAction,
 } from '../../supabase/functions/_shared/uk-checkout-lifecycle';
+import { getUkCheckoutReturnStatus } from '../../supabase/functions/_shared/uk-checkout-return';
 
 describe('UK abandoned Stripe checkout lifecycle', () => {
   it('expires an open unpaid Stripe session on the next checkout attempt', () => {
     expect(getAbandonedCheckoutAction({ id: 'cs_test_open', status: 'open', payment_status: 'unpaid' })).toBe('expire');
+  });
+
+  describe('UK hosted checkout return status', () => {
+    it('shows success only when Stripe is paid and the webhook-confirmed order exists', () => {
+      expect(getUkCheckoutReturnStatus({
+        sessionStatus: 'complete',
+        paymentStatus: 'paid',
+        paymentIntentStatus: 'succeeded',
+        failureConfirmed: false,
+        orderConfirmed: true,
+      })).toBe('success');
+    });
+
+    it('keeps a successful Stripe payment processing until webhook order recovery completes', () => {
+      expect(getUkCheckoutReturnStatus({
+        sessionStatus: 'complete',
+        paymentStatus: 'paid',
+        paymentIntentStatus: 'succeeded',
+        failureConfirmed: false,
+        orderConfirmed: false,
+      })).toBe('processing');
+    });
+
+    it('distinguishes terminal failure and an expired unpaid cancellation', () => {
+      expect(getUkCheckoutReturnStatus({
+        sessionStatus: 'complete',
+        paymentStatus: 'unpaid',
+        paymentIntentStatus: 'requires_payment_method',
+        failureConfirmed: true,
+        orderConfirmed: false,
+      })).toBe('failed');
+      expect(getUkCheckoutReturnStatus({
+        sessionStatus: 'expired',
+        paymentStatus: 'unpaid',
+        failureConfirmed: false,
+        orderConfirmed: false,
+      })).toBe('cancelled');
+    });
+
+    it('keeps incomplete or still-processing payments out of terminal states', () => {
+      expect(getUkCheckoutReturnStatus({
+        sessionStatus: 'complete',
+        paymentStatus: 'unpaid',
+        paymentIntentStatus: 'processing',
+        failureConfirmed: false,
+        orderConfirmed: false,
+      })).toBe('processing');
+    });
+
+    it('does not show failure until Stripe delivers the terminal failure webhook', () => {
+      expect(getUkCheckoutReturnStatus({
+        sessionStatus: 'complete',
+        paymentStatus: 'unpaid',
+        paymentIntentStatus: 'requires_payment_method',
+        failureConfirmed: false,
+        orderConfirmed: false,
+      })).toBe('processing');
+    });
   });
 
   it('closes an expired unpaid session so a new quote can be created', () => {
