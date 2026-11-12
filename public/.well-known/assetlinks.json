@@ -1,0 +1,22 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.bzead.buyerapp",
+      "sha256_cert_fingerprints": [
+        "30:2F:63:A1:A1:97:5E:1C:BD:55:5B:6A:B9:E5:B2:0B:77:75:AA:79:80:E2:CF:2B:2A:F9:2F:31:1B:85:A8:FB"
+      ]
+    }
+  },
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.bzead.uk",
+      "sha256_cert_fingerprints": [
+        "46:9D:80:AC:53:BE:41:9D:E2:77:3E:EC:39:F8:58:CB:35:A6:AE:E3:FF:F3:24:47:53:EF:E0:D2:83:15:C5:49"
+      ]
+    }
+  }
+]

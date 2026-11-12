@@ -1,0 +1,54 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+build
+dist
+dist-buyer
+dist-seller
+dist-ssr
+*.local
+
+# Local Supabase CLI artifacts
+supabase/remote_schema.sql
+supabase/.temp/
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.*.local
+/keys.md
+/pending-products-hsn.csv
+/cred.md
+
+# Private keys & certificates
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Android (Capacitor) build artifacts
+android/app/build/
+android/build/
+android/.gradle/
+android/capacitor-android/build/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties

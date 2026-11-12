@@ -1,0 +1,72 @@
+-- Replace approximate UK rates with actual Delhivery Saver rates (India -> UK)
+-- Source: Actual DLV Saver international rate card, March 2026
+
+begin;
+
+-- Remove old approximate UK rates
+DELETE FROM public.intl_rate_card WHERE country_code = 'GBR' AND service_type = 'dlv_saver';
+
+-- Insert actual DLV Saver rates: India to UK (0.5 KG steps, 0-30 KG)
+INSERT INTO public.intl_rate_card (country_code, country_name, service_type, weight_min_kg, weight_max_kg, rate_inr) VALUES
+('GBR', 'United Kingdom', 'dlv_saver', 0.000, 0.500, 699.00),
+('GBR', 'United Kingdom', 'dlv_saver', 0.500, 1.000, 950.00),
+('GBR', 'United Kingdom', 'dlv_saver', 1.000, 1.500, 1190.00),
+('GBR', 'United Kingdom', 'dlv_saver', 1.500, 2.000, 1630.00),
+('GBR', 'United Kingdom', 'dlv_saver', 2.000, 2.500, 1935.00),
+('GBR', 'United Kingdom', 'dlv_saver', 2.500, 3.000, 2240.00),
+('GBR', 'United Kingdom', 'dlv_saver', 3.000, 3.500, 2610.00),
+('GBR', 'United Kingdom', 'dlv_saver', 3.500, 4.000, 2810.00),
+('GBR', 'United Kingdom', 'dlv_saver', 4.000, 4.500, 3160.00),
+('GBR', 'United Kingdom', 'dlv_saver', 4.500, 5.000, 3510.00),
+('GBR', 'United Kingdom', 'dlv_saver', 5.000, 5.500, 3860.00),
+('GBR', 'United Kingdom', 'dlv_saver', 5.500, 6.000, 4210.00),
+('GBR', 'United Kingdom', 'dlv_saver', 6.000, 6.500, 4560.00),
+('GBR', 'United Kingdom', 'dlv_saver', 6.500, 7.000, 4910.00),
+('GBR', 'United Kingdom', 'dlv_saver', 7.000, 7.500, 5260.00),
+('GBR', 'United Kingdom', 'dlv_saver', 7.500, 8.000, 5610.00),
+('GBR', 'United Kingdom', 'dlv_saver', 8.000, 8.500, 5960.00),
+('GBR', 'United Kingdom', 'dlv_saver', 8.500, 9.000, 6310.00),
+('GBR', 'United Kingdom', 'dlv_saver', 9.000, 9.500, 6660.00),
+('GBR', 'United Kingdom', 'dlv_saver', 9.500, 10.000, 7010.00),
+('GBR', 'United Kingdom', 'dlv_saver', 10.000, 10.500, 7360.00),
+('GBR', 'United Kingdom', 'dlv_saver', 10.500, 11.000, 7710.00),
+('GBR', 'United Kingdom', 'dlv_saver', 11.000, 11.500, 8060.00),
+('GBR', 'United Kingdom', 'dlv_saver', 11.500, 12.000, 8410.00),
+('GBR', 'United Kingdom', 'dlv_saver', 12.000, 12.500, 8760.00),
+('GBR', 'United Kingdom', 'dlv_saver', 12.500, 13.000, 9110.00),
+('GBR', 'United Kingdom', 'dlv_saver', 13.000, 13.500, 9460.00),
+('GBR', 'United Kingdom', 'dlv_saver', 13.500, 14.000, 9810.00),
+('GBR', 'United Kingdom', 'dlv_saver', 14.000, 14.500, 10160.00),
+('GBR', 'United Kingdom', 'dlv_saver', 14.500, 15.000, 10510.00),
+('GBR', 'United Kingdom', 'dlv_saver', 15.000, 15.500, 10860.00),
+('GBR', 'United Kingdom', 'dlv_saver', 15.500, 16.000, 11210.00),
+('GBR', 'United Kingdom', 'dlv_saver', 16.000, 16.500, 11560.00),
+('GBR', 'United Kingdom', 'dlv_saver', 16.500, 17.000, 11910.00),
+('GBR', 'United Kingdom', 'dlv_saver', 17.000, 17.500, 12260.00),
+('GBR', 'United Kingdom', 'dlv_saver', 17.500, 18.000, 12610.00),
+('GBR', 'United Kingdom', 'dlv_saver', 18.000, 18.500, 12960.00),
+('GBR', 'United Kingdom', 'dlv_saver', 18.500, 19.000, 13310.00),
+('GBR', 'United Kingdom', 'dlv_saver', 19.000, 19.500, 13660.00),
+('GBR', 'United Kingdom', 'dlv_saver', 19.500, 20.000, 14010.00),
+('GBR', 'United Kingdom', 'dlv_saver', 20.000, 20.500, 14360.00),
+('GBR', 'United Kingdom', 'dlv_saver', 20.500, 21.000, 14710.00),
+('GBR', 'United Kingdom', 'dlv_saver', 21.000, 21.500, 15060.00),
+('GBR', 'United Kingdom', 'dlv_saver', 21.500, 22.000, 15410.00),
+('GBR', 'United Kingdom', 'dlv_saver', 22.000, 22.500, 15760.00),
+('GBR', 'United Kingdom', 'dlv_saver', 22.500, 23.000, 16110.00),
+('GBR', 'United Kingdom', 'dlv_saver', 23.000, 23.500, 16460.00),
+('GBR', 'United Kingdom', 'dlv_saver', 23.500, 24.000, 16810.00),
+('GBR', 'United Kingdom', 'dlv_saver', 24.000, 24.500, 17160.00),
+('GBR', 'United Kingdom', 'dlv_saver', 24.500, 25.000, 17510.00),
+('GBR', 'United Kingdom', 'dlv_saver', 25.000, 25.500, 17860.00),
+('GBR', 'United Kingdom', 'dlv_saver', 25.500, 26.000, 18210.00),
+('GBR', 'United Kingdom', 'dlv_saver', 26.000, 26.500, 18560.00),
+('GBR', 'United Kingdom', 'dlv_saver', 26.500, 27.000, 18910.00),
+('GBR', 'United Kingdom', 'dlv_saver', 27.000, 27.500, 19260.00),
+('GBR', 'United Kingdom', 'dlv_saver', 27.500, 28.000, 19610.00),
+('GBR', 'United Kingdom', 'dlv_saver', 28.000, 28.500, 19960.00),
+('GBR', 'United Kingdom', 'dlv_saver', 28.500, 29.000, 20310.00),
+('GBR', 'United Kingdom', 'dlv_saver', 29.000, 29.500, 20660.00),
+('GBR', 'United Kingdom', 'dlv_saver', 29.500, 30.000, 21010.00);
+
+commit;

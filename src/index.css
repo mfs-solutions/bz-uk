@@ -1,0 +1,1378 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --page-gradient: linear-gradient(135deg, #dbeafe 0%, #eff6ff 48%, #ffffff 100%);
+    /* Height of the global sticky <Header /> (h-16 = 4rem). Inner page-level
+       sticky bars (sort bar, order-total bar, page sub-headers) must use
+       `top: var(--bz-header-offset)` to stack directly below the global header. */
+    --bz-header-offset: 4rem;
+  }
+
+  html, body {
+    overflow-x: hidden;
+    width: 100%;
+  }
+
+  #root {
+    min-height: 100vh;
+    padding-top: env(safe-area-inset-top);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+  }
+
+  body {
+    @apply text-gray-900 font-sans antialiased;
+    background-image: var(--page-gradient);
+    background-attachment: fixed;
+    background-size: cover;
+    background-repeat: no-repeat;
+  }
+
+  /* ─── Native app shell (Capacitor only — never applies on web) ───
+     The body class `native-app` is added by nativeBootstrap.ts on
+     Capacitor builds. On the web build neither class ever appears,
+     so these rules are completely inert there. */
+
+  /* Replace `overflow-x: hidden` (which creates a scroll container
+     and breaks `position: sticky` on Android WebView) with
+     `overflow-x: clip` (no scroll container → sticky works). */
+  html.native-app,
+  body.native-app {
+    overflow-x: clip;
+  }
+
+  /* Re-affirm the sticky header inside the Android WebView in case any
+     ancestor sets a transform/filter that would otherwise demote it.
+     The header itself absorbs the status-bar safe-area as padding so its
+     opaque background fills under the system status bar (no transparent
+     gap between status bar and header while scrolling). */
+  body.native-app header.sticky {
+    position: -webkit-sticky;
+    position: sticky;
+    top: 0;
+    padding-top: env(safe-area-inset-top);
+  }
+
+  /* Seller app uses `position: fixed` for its top header and bottom nav
+     (SellerLayout). Absorb the status-bar inset into the fixed header,
+     and the gesture-bar inset into the bottom nav, so neither vanishes
+     under system chrome. The fixed elements never disappear on scroll. */
+  body.native-app header.fixed {
+    padding-top: env(safe-area-inset-top);
+  }
+  body.native-app nav.fixed.bottom-0 {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Seller sidebar: in native, shift top down past the status-bar inset
+     and shrink height to clear the gesture-bar inset. Web is unaffected. */
+  body.native-app aside[data-native-safe-area="sidebar"] {
+    top: calc(env(safe-area-inset-top, 0px) + 2.5rem);
+    height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2.5rem);
+  }
+  @media (min-width: 640px) {
+    body.native-app aside[data-native-safe-area="sidebar"] {
+      top: calc(env(safe-area-inset-top, 0px) + 2.5rem);
+      height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2.5rem);
+    }
+  }
+  @media (min-width: 1024px) {
+    body.native-app aside[data-native-safe-area="sidebar"] {
+      top: calc(env(safe-area-inset-top, 0px) + 2.5rem);
+      height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2.5rem);
+    }
+  }
+
+  /* Seller main column: extend pt/pb so content clears the now-taller
+     fixed header (header.fixed + status-bar inset) and the now-taller
+     bottom nav (nav.fixed.bottom-0 + gesture-bar inset). */
+  body.native-app main[data-native-safe-area="main"] {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 2.5rem);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 3rem);
+  }
+  @media (min-width: 640px) {
+    body.native-app main[data-native-safe-area="main"] {
+      padding-top: calc(env(safe-area-inset-top, 0px) + 2.5rem);
+    }
+  }
+  @media (min-width: 1024px) {
+    body.native-app main[data-native-safe-area="main"] {
+      padding-bottom: 1rem;
+    }
+  }
+
+  /* Admin main column: original pt-20 pb-20 + native insets. */
+  body.native-app main[data-native-safe-area="admin-main"] {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 3.25rem);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 3.5rem);
+  }
+  @media (min-width: 1024px) {
+    body.native-app main[data-native-safe-area="admin-main"] {
+      padding-bottom: 1rem;
+    }
+  }
+
+  /* Shrink header & bottom-nav heights inside the native shell so the
+     fixed top/bottom chrome takes less vertical space than on web.
+     Targets the inner rows tagged in SellerLayout / AdminLayout / AdminHeader. */
+  body.native-app [data-native-shrink="header"] {
+    height: 2.5rem !important;
+    min-height: 2.5rem !important;
+  }
+  body.native-app [data-native-shrink="nav"] {
+    height: 3rem !important;
+    min-height: 3rem !important;
+  }
+  body.native-app [data-native-shrink="admin-header"] {
+    min-height: 3rem !important;
+  }
+
+  /* #root no longer needs top safe-area padding — the header absorbs it.
+     Without this, we'd double-pad and push the header down again. */
+  body.native-app #root {
+    padding-top: 0;
+  }
+
+  /* Inside the native app the global header (h-16 = 4rem) plus the status-bar
+     safe-area together define the offset that inner sticky bars must clear. */
+  body.native-app {
+    --bz-header-offset: calc(env(safe-area-inset-top, 0px) + 4rem);
+  }
+
+  /* Hide the website Footer entirely inside the native app shell.
+     Pages still render <Footer /> but it returns null on native
+     (see Footer.tsx). This rule is a defensive fallback only. */
+  body.native-app footer[data-app-footer="true"] {
+    display: none !important;
+  }
+
+  /* --- Native-only: compact seller auth pages (login / signup / forgot) ---
+     Web users never receive `body.native-app`, so these tighten the form
+     only on the Android app. */
+  body.native-app .seller-auth-shell {
+    padding: 0.75rem !important;
+    align-items: flex-start !important;
+  }
+  body.native-app .seller-auth-shell .auth-card {
+    padding: 1rem !important;
+    border-radius: 1rem !important;
+    max-width: 100% !important;
+  }
+  body.native-app .seller-auth-shell .auth-title {
+    font-size: 1.25rem !important;
+    line-height: 1.2 !important;
+  }
+  body.native-app .seller-auth-shell .auth-subtitle {
+    font-size: 0.7rem !important;
+    margin-top: 0.25rem !important;
+  }
+  body.native-app .seller-auth-shell .text-center.mb-8,
+  body.native-app .seller-auth-shell .text-center.mb-7,
+  body.native-app .seller-auth-shell .text-center.mb-6 {
+    margin-bottom: 0.75rem !important;
+  }
+  /* Tighten vertical gaps between form fields */
+  body.native-app .seller-auth-shell form.space-y-6 > * + *,
+  body.native-app .seller-auth-shell form.space-y-5 > * + *,
+  body.native-app .seller-auth-shell form.space-y-4 > * + * {
+    margin-top: 0.65rem !important;
+  }
+  /* Tighten label-to-input gap */
+  body.native-app .seller-auth-shell form .space-y-2 > * + * {
+    margin-top: 0.25rem !important;
+  }
+  /* Smaller inputs */
+  body.native-app .seller-auth-shell .auth-input {
+    height: 2.5rem !important;
+    font-size: 0.8rem !important;
+  }
+  /* Smaller selects (country / business type) and dial-code box.
+     Do NOT broadly target every input here — the OTP input has its own
+     bespoke height/tracking and would otherwise collapse. */
+  body.native-app .seller-auth-shell select,
+  body.native-app .seller-auth-shell .auth-card .w-24 {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+    height: 2.5rem !important;
+    font-size: 0.8rem !important;
+  }
+  /* OTP input on /seller/otp-verification: keep the wide-tracking look but
+     trim height a notch so it fits the compact card. */
+  body.native-app .seller-auth-shell .auth-card input[inputmode="numeric"][maxlength="6"] {
+    height: 2.75rem !important;
+    font-size: 1.25rem !important;
+    letter-spacing: 0.3em !important;
+  }
+  body.native-app .seller-auth-shell .auth-card label {
+    font-size: 0.7rem !important;
+  }
+  /* Submit button: a bit shorter */
+  body.native-app .seller-auth-shell .auth-submit-btn,
+  body.native-app .seller-auth-shell .auth-submit-btn-primary,
+  body.native-app .seller-auth-shell .auth-submit-btn-blue {
+    height: 2.5rem !important;
+    font-size: 0.8rem !important;
+    margin-top: 0.5rem !important;
+  }
+  /* Trim the bottom "Already have an account" footer spacing */
+  body.native-app .seller-auth-shell form > .text-center.mt-6,
+  body.native-app .seller-auth-shell form > .text-center.mt-4 {
+    margin-top: 0.5rem !important;
+  }
+  /* OTP page: trim the divider/footer block ("Back to Home" wrapper) and
+     the resend / help-text margins so the card matches the compact look. */
+  body.native-app .seller-auth-shell .auth-card .mt-6.pt-6.border-t {
+    margin-top: 0.5rem !important;
+    padding-top: 0.5rem !important;
+  }
+  body.native-app .seller-auth-shell form .mb-3 {
+    margin-bottom: 0.4rem !important;
+  }
+  body.native-app .seller-auth-shell form p.mt-4 {
+    margin-top: 0.4rem !important;
+  }
+
+  /* --- Native-only: buyer auth pages (login / signup / forgot-password) ---
+     body.native-app is only present in the Capacitor build, so the web app
+     is completely unaffected by every rule in this block. */
+
+  /* Hide nav bar, decorative intro panel, page title, duplicate logo */
+  body.native-app .buyer-auth-nav { display: none !important; }
+  body.native-app .buyer-auth-intro { display: none !important; }
+  body.native-app .buyer-auth-page-title { display: none !important; }
+  body.native-app .buyer-auth-form-side .auth-brand-mark { display: none !important; }
+
+  /* Page = exact space between sticky Header (4rem/64px) and viewport bottom */
+  body.native-app .buyer-auth-page {
+    display: flex !important;
+    flex-direction: column !important;
+    height: calc(100dvh - 4rem) !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    padding-bottom: 0 !important;
+  }
+
+  /* Main grows to fill buyer-auth-page */
+  body.native-app .buyer-auth-main {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 0 !important;
+  }
+
+  /* Form side fills main; padding-bottom reserves MobileNav (3.75rem) so
+     justify-content:center places the card in the visual center of the screen */
+  body.native-app .buyer-auth-form-side {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 16px 16px 3.75rem !important;
+  }
+
+  /* Card: full width, no shadow, no extra margins */
+  body.native-app .buyer-auth-form-side .auth-card {
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 420px !important;
+    box-shadow: none !important;
+    padding: 24px 20px !important;
+  }
+
+  /* --- Native-only: cart page ---
+     MobileNav is `fixed bottom-0` (~60px tall) and overlays the bottom of the
+     `h-[100dvh] overflow-hidden` cart container, hiding the checkout button.
+     Shrink the constrained wrapper to stay above the nav bar. */
+  body.native-app .h-\[100dvh\].overflow-hidden {
+    height: calc(100dvh - 3.75rem) !important;
+  }
+
+  /* Compact item card on native */
+  body.native-app .native-cart-item {
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+    gap: 10px !important;
+  }
+
+  /* Qty + actions row: wrap so actions go on a second line, no clipping */
+  body.native-app .native-cart-qty-row {
+    gap: 6px !important;
+    flex-wrap: wrap !important;
+    white-space: normal !important;
+  }
+  body.native-app .native-cart-actions {
+    width: 100% !important;
+    justify-content: flex-start !important;
+    margin-top: 2px !important;
+  }
+
+  /* Checkout bar: fixed above MobileNav so it is always fully visible */
+  body.native-app .native-cart-checkout {
+    position: fixed !important;
+    bottom: 3.75rem !important;
+    left: 0 !important;
+    right: 0 !important;
+    background: #fff !important;
+    border-top: 1px solid #e5e7eb !important;
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.07) !important;
+    padding: 8px 16px 10px !important;
+    z-index: 50 !important;
+  }
+  body.native-app .native-cart-checkout .rounded-\[10px\] {
+    border: none !important;
+    padding: 0 !important;
+  }
+  body.native-app .native-cart-checkout h2 {
+    display: none !important;
+  }
+  /* Scrollable items list: pad bottom so last item isn't hidden behind fixed checkout */
+  body.native-app .native-cart-scroll {
+    padding-bottom: 140px !important;
+  }
+}
+
+@layer components {
+  .auth-page-shell {
+    @apply relative min-h-screen flex items-center justify-center px-3 sm:px-4 py-6 sm:py-8 overflow-hidden;
+    background-image: var(--page-gradient);
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+  }
+
+  .auth-page-shell::before,
+  .auth-page-shell::after {
+    content: '';
+    position: absolute;
+    border-radius: 9999px;
+    pointer-events: none;
+    opacity: 0.45;
+  }
+
+  .auth-page-shell::before {
+    width: min(420px, 70vw);
+    height: min(420px, 70vw);
+    top: -12%;
+    right: -18%;
+    background: radial-gradient(circle, rgba(59, 130, 246, 0.18) 0%, transparent 70%);
+  }
+
+  .auth-page-shell::after {
+    width: min(360px, 60vw);
+    height: min(360px, 60vw);
+    bottom: -10%;
+    left: -14%;
+    background: radial-gradient(circle, rgba(37, 99, 235, 0.12) 0%, transparent 72%);
+  }
+
+  /* Native (Capacitor) variant: not full-screen because <Header> sits above
+     and <MobileNav> sits below the auth card. Smaller card, vertically
+     centered between them. Web users never receive this class. */
+  .auth-page-shell--native {
+    @apply min-h-0 px-3 py-6;
+    /* Leave room for the bottom nav (~64px + safe-area-inset). */
+    padding-bottom: calc(80px + env(safe-area-inset-bottom));
+  }
+  .auth-page-shell--native .auth-card {
+    @apply max-w-sm p-4 sm:p-5;
+  }
+  .auth-page-shell--native .auth-title {
+    @apply text-xl sm:text-2xl;
+  }
+
+  .seller-auth-shell {
+    @apply relative min-h-screen flex items-center justify-center px-3 sm:px-4 py-6 sm:py-8 overflow-hidden;
+    background-image: linear-gradient(155deg, #0a1628 0%, #0b1f5f 42%, #1d4b8f 100%);
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+  }
+
+  .seller-auth-shell::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse at center, black 20%, transparent 75%);
+  }
+
+  .seller-auth-shell::after {
+    content: '';
+    position: absolute;
+    width: min(520px, 85vw);
+    height: min(520px, 85vw);
+    top: -20%;
+    right: -25%;
+    border-radius: 9999px;
+    pointer-events: none;
+    background: radial-gradient(circle, rgba(37, 99, 235, 0.22) 0%, transparent 68%);
+  }
+
+  .auth-card {
+    @apply relative z-10 w-full max-w-sm bg-white text-black rounded-xl shadow-lg border border-slate-200/80 p-5 sm:p-6 backdrop-blur-sm;
+  }
+
+  .auth-card--buyer {
+    @apply border-sky-100/90 shadow-blue-100/40;
+  }
+
+  .buyer-auth-page {
+    min-height: 100dvh;
+    background: #fff;
+    color: #29272b;
+  }
+
+  .buyer-auth-nav {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    padding: 0 34px;
+    background: #1f2b3d;
+  }
+
+  .buyer-auth-nav img {
+    display: block;
+    width: 106px;
+    height: auto;
+  }
+
+  .buyer-auth-main {
+    min-height: calc(100dvh - 60px);
+    display: grid;
+    grid-template-columns: minmax(0, 55%) minmax(420px, 45%);
+  }
+
+  .buyer-auth-intro {
+    position: relative;
+    overflow: hidden;
+    padding: clamp(4rem, 10vh, 7rem) clamp(2.5rem, 8vw, 7rem);
+    background-color: #fff7f8;
+    background-image: radial-gradient(circle at 15% 15%, rgba(255, 255, 255, .9) 0 2px, transparent 3px);
+    background-size: 14px 14px;
+  }
+
+  .buyer-auth-intro::after {
+    content: '';
+    position: absolute;
+    width: 620px;
+    height: 620px;
+    right: -90px;
+    top: -510px;
+    border: 1px solid rgba(222, 187, 195, .35);
+    border-radius: 48%;
+    box-shadow: 0 0 0 26px rgba(255, 255, 255, .3), 0 0 0 54px rgba(255, 255, 255, .25);
+  }
+
+  .buyer-auth-intro-content {
+    position: relative;
+    z-index: 1;
+    max-width: 560px;
+  }
+
+  .buyer-auth-intro h1 {
+    margin: 0;
+    font-family: "Trebuchet MS", sans-serif;
+    font-size: clamp(2rem, 3.1vw, 2.75rem);
+    font-weight: 700;
+    line-height: 1.22;
+  }
+
+  .buyer-auth-intro h1 strong { color: #ea5369; }
+
+  .buyer-auth-intro p {
+    max-width: 500px;
+    margin: 1.7rem 0 0;
+    color: #635f66;
+    font-size: 1rem;
+    line-height: 1.55;
+  }
+
+  .buyer-auth-illustration {
+    position: absolute;
+    right: 16%;
+    bottom: 35px;
+    width: 320px;
+    height: 225px;
+  }
+
+  .buyer-auth-box { position: absolute; bottom: 0; display: block; background: #e94e65; }
+  .buyer-auth-box--left { left: 16px; width: 69px; height: 50px; background: #db4059; }
+  .buyer-auth-box--center { left: 84px; width: 69px; height: 86px; }
+  .buyer-auth-box--right { right: 4px; width: 58px; height: 40px; background: #f097a3; }
+  .buyer-auth-phone {
+    position: absolute;
+    left: 108px;
+    top: 10px;
+    display: block;
+    width: 104px;
+    height: 184px;
+    border: 7px solid #3d4653;
+    border-radius: 16px;
+    background: #fff;
+    transform: rotate(-3deg);
+  }
+  .buyer-auth-phone::before { content: ''; position: absolute; left: 29px; top: 6px; width: 31px; height: 4px; border-radius: 5px; background: #3d4653; }
+  .buyer-auth-phone i { position: absolute; left: 23px; top: 45px; width: 46px; height: 65px; background: #ef566a; clip-path: polygon(32% 0, 68% 0, 80% 25%, 100% 100%, 0 100%, 20% 25%); }
+
+  .buyer-auth-form-side {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 30px;
+    background: #fff;
+  }
+
+  .buyer-auth-page-title {
+    width: 100%;
+    padding: 20px 0;
+    border-bottom: 1px solid #edf0f5;
+    text-align: center;
+    font-size: 1.75rem;
+    font-weight: 700;
+  }
+
+  .buyer-auth-form-side .auth-card {
+    width: min(100%, 460px);
+    max-width: 460px;
+    margin: 36px auto;
+    padding: 23px 30px 30px;
+    border-color: #edf0f4;
+    border-radius: 8px;
+    box-shadow: 0 3px 14px rgba(33, 44, 63, .08);
+  }
+
+  .buyer-auth-form-side .auth-top-link { display: none; }
+  .buyer-auth-form-side .auth-card-header { margin-bottom: 1.4rem; }
+  .buyer-auth-form-side .auth-brand-mark { margin-bottom: .6rem; }
+  .buyer-auth-form-side .auth-brand-logo { height: 2.7rem; }
+  .buyer-auth-form-side .auth-title { font-size: 1.35rem; }
+  .buyer-auth-form-side .auth-subtitle { margin-top: .4rem; font-size: .8rem; }
+
+  @media (max-width: 767px) {
+    .buyer-auth-nav { height: 56px; padding: 0 20px; }
+    .buyer-auth-nav img { width: 94px; }
+    .buyer-auth-main { min-height: calc(100dvh - 56px); display: block; }
+    .buyer-auth-intro { display: none; }
+    .buyer-auth-form-side { min-height: calc(100dvh - 56px); padding: 0 16px 24px; justify-content: center; }
+    .buyer-auth-page-title { padding: 17px 0; font-size: 1.3rem; }
+    .buyer-auth-form-side .auth-card { width: 100%; margin: 24px auto 0; padding: 22px 20px; box-shadow: none; }
+    .buyer-auth-form-side .auth-top-link { display: inline-flex; }
+  }
+
+  .auth-brand-mark {
+    @apply flex justify-center mb-3;
+  }
+
+  .auth-brand-logo {
+    @apply h-11 sm:h-12 w-auto max-w-[min(100%,260px)] object-contain;
+  }
+
+  .auth-card-header {
+    @apply text-center mb-5;
+  }
+
+  .auth-field-hint {
+    @apply text-xs text-slate-500 mt-1.5 leading-relaxed;
+  }
+
+  .auth-card--seller {
+    @apply border-slate-200 overflow-hidden;
+  }
+
+  .auth-card--seller::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #2563eb 0%, #1d4ed8 50%, #2563eb 100%);
+  }
+
+  .auth-trust-row {
+    @apply flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[10px] font-medium text-slate-500 mt-2;
+  }
+
+  .auth-trust-dot {
+    @apply text-slate-300 select-none;
+  }
+
+  .auth-footer-link {
+    @apply font-medium text-blue-700 hover:text-blue-800 hover:underline transition-colors;
+  }
+
+  .profile-page-shell {
+    @apply min-h-screen bg-slate-50 flex flex-col;
+  }
+
+  .profile-page-main {
+    @apply flex-1 py-6 sm:py-8 pb-24 md:pb-8;
+  }
+
+  .profile-page-inner {
+    @apply max-w-6xl mx-auto px-4;
+  }
+
+  .profile-breadcrumb {
+    @apply flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mb-3;
+  }
+
+  .profile-breadcrumb-link {
+    @apply text-slate-500 hover:text-[#6D28D9] transition-colors;
+  }
+
+  .profile-breadcrumb-current {
+    @apply text-slate-800 font-medium;
+  }
+
+  .acct-layout {
+    @apply grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-5 lg:gap-6 items-start mt-2;
+  }
+
+  .acct-sidebar {
+    @apply bg-white rounded-2xl border border-slate-200/90 shadow-sm p-2 lg:sticky lg:top-24;
+  }
+
+  .acct-menu {
+    @apply flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible;
+  }
+
+  .acct-menu-item {
+    @apply relative flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors whitespace-nowrap text-left lg:w-full;
+  }
+
+  .acct-menu-item--active {
+    @apply bg-[#6D28D9]/10 text-[#6D28D9] font-semibold hover:bg-[#6D28D9]/10;
+  }
+
+  .acct-menu-item--active::before {
+    content: '';
+    @apply absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full bg-[#6D28D9] hidden lg:block;
+  }
+
+  .acct-menu-item--logout {
+    @apply text-red-600 hover:bg-red-50;
+  }
+
+  .acct-menu-divider {
+    @apply my-2 border-t border-slate-100 hidden lg:block;
+  }
+
+  .acct-accordion {
+    @apply flex flex-col gap-2.5 mt-1;
+  }
+
+  .acct-acc-item {
+    @apply bg-white rounded-xl border border-slate-200/90 shadow-sm overflow-hidden;
+  }
+
+  .acct-acc-head {
+    @apply w-full flex items-center justify-between gap-3 px-4 py-3.5 text-sm font-semibold text-slate-800 text-left bg-white;
+  }
+
+  .acct-acc-label {
+    @apply flex items-center gap-3;
+  }
+
+  .acct-acc-body {
+    @apply px-4 pb-4 pt-3 border-t border-slate-100;
+  }
+
+  .acct-acc-logout {
+    @apply mt-2 rounded-xl border border-red-100 text-red-600 shadow-sm;
+  }
+
+  .ship-steps {
+    @apply flex items-center justify-between gap-2 mb-4 px-1;
+  }
+
+  .ship-step {
+    @apply flex-1 flex items-center justify-center gap-2 text-xs sm:text-sm font-medium text-slate-400 pb-2 border-b-2 border-slate-200;
+  }
+
+  .ship-step > span {
+    @apply inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-[11px] font-bold;
+  }
+
+  .ship-step--done {
+    @apply text-[#6D28D9] font-semibold;
+  }
+
+  .ship-step--done > span {
+    @apply bg-[#6D28D9] text-white;
+  }
+
+  .ship-step--active {
+    @apply text-[#6D28D9] border-[#6D28D9] font-semibold;
+  }
+
+  .ship-step--active > span {
+    @apply bg-[#6D28D9] text-white;
+  }
+
+  .ship-segment {
+    @apply grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl;
+  }
+
+  .ship-segment-btn {
+    @apply flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-semibold text-slate-600 transition-all;
+  }
+
+  .ship-segment-btn--on {
+    @apply bg-white text-[#6D28D9] shadow-sm;
+  }
+
+  .ship-section-title {
+    @apply text-base font-bold text-slate-900 mb-4 pb-2 border-b border-slate-100;
+  }
+
+  .ship-label {
+    @apply block text-[13px] font-semibold text-slate-700 mb-1.5;
+  }
+
+  .ship-input {
+    @apply w-full px-3.5 py-3 text-base text-slate-900 bg-white border border-slate-300 rounded-xl placeholder:text-slate-400 focus:outline-none focus:border-[#6D28D9] focus:ring-2 focus:ring-[#6D28D9]/20 disabled:bg-slate-50 disabled:text-slate-500;
+  }
+
+  .ship-tab {
+    @apply flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-3 text-sm font-semibold text-slate-800;
+  }
+
+  .ship-tab--on {
+    @apply border-[#6D28D9] bg-[#6D28D9]/10 text-[#6D28D9];
+  }
+
+  .ship-field {
+    @apply relative;
+  }
+
+  .ship-field-icon {
+    @apply pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500;
+  }
+
+  .ship-field-icon--top {
+    @apply top-4 translate-y-0;
+  }
+
+  .ship-input--icon {
+    @apply pl-10 text-sm;
+  }
+
+  .ship-primary-btn {
+    @apply w-full py-3.5 bg-[#6D28D9] hover:bg-[#5b21b6] text-white rounded-xl text-[15px] font-bold transition-colors disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed;
+  }
+
+  .acct-panel {
+    @apply bg-white rounded-2xl border border-slate-200/90 shadow-sm p-5 sm:p-8 min-w-0;
+  }
+
+  .acct-panel-head {
+    @apply flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6;
+  }
+
+  .acct-panel-title {
+    @apply text-2xl font-bold text-slate-900 tracking-tight;
+  }
+
+  .acct-panel-subtitle {
+    @apply text-sm text-slate-500 mt-1;
+  }
+
+  .acct-field-grid {
+    @apply grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-6;
+  }
+
+  .acct-field-head {
+    @apply flex items-center justify-between mb-1.5 min-h-[20px];
+  }
+
+  .acct-label {
+    @apply text-sm font-semibold text-slate-700;
+  }
+
+  .acct-edit-link {
+    @apply inline-flex items-center gap-1 text-xs font-semibold text-[#6D28D9] hover:text-[#5b21b6] transition;
+  }
+
+  .acct-input {
+    @apply w-full px-4 py-3 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#6D28D9]/20 focus:border-[#6D28D9] transition-colors;
+  }
+
+  .acct-input--static {
+    @apply flex items-center gap-2 bg-white min-h-[46px];
+  }
+
+  .acct-input--locked {
+    @apply bg-slate-50 text-slate-600;
+  }
+
+  .acct-hint {
+    @apply text-xs text-slate-400 mt-1.5;
+  }
+
+  .acct-btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl bg-[#6D28D9] text-white text-sm font-semibold hover:bg-[#5b21b6] transition disabled:opacity-50;
+  }
+
+  .acct-btn-secondary {
+    @apply inline-flex items-center justify-center px-5 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:text-slate-900 transition;
+  }
+
+  .acct-btn-secondary--outline {
+    @apply border border-slate-200 bg-white hover:bg-slate-50 shrink-0;
+  }
+
+  .acct-row {
+    @apply flex items-center justify-between gap-4 pb-6 border-b border-slate-100;
+  }
+
+  .acct-address-list {
+    @apply divide-y divide-slate-100 border border-slate-200 rounded-xl;
+  }
+
+  .acct-address-row {
+    @apply flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-4 hover:bg-slate-50/60 transition-colors;
+  }
+
+  .acct-address-actions {
+    @apply flex items-center gap-4 shrink-0;
+  }
+
+  .acct-type-pill {
+    @apply text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 text-slate-600;
+  }
+
+  .addr-page {
+    @apply max-w-5xl mx-auto px-4;
+  }
+
+  .addr-page-title {
+    @apply text-xl sm:text-2xl font-bold text-slate-900 tracking-tight;
+  }
+
+  .addr-subtitle {
+    @apply text-sm text-slate-500 mt-1;
+  }
+
+  .addr-form {
+    @apply bg-white rounded-xl border border-slate-200 p-5 sm:p-7 space-y-5;
+  }
+
+  .addr-grid {
+    @apply grid grid-cols-1 sm:grid-cols-6 gap-x-5 gap-y-4;
+  }
+
+  .addr-field {
+    @apply min-w-0 sm:col-span-3;
+  }
+
+  .addr-field--third {
+    @apply sm:col-span-2;
+  }
+
+  .addr-field--full {
+    @apply sm:col-span-6;
+  }
+
+  .addr-label {
+    @apply block text-xs font-semibold text-slate-700 mb-1;
+  }
+
+  .addr-label span {
+    @apply text-red-500;
+  }
+
+  .addr-label span.addr-optional {
+    @apply text-slate-400 font-normal;
+  }
+
+  .addr-input {
+    @apply w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#6D28D9] focus:ring-2 focus:ring-[#6D28D9]/20 transition disabled:bg-slate-50;
+  }
+
+  .addr-input--error {
+    @apply border-red-500 bg-red-50/40 focus:border-red-500 focus:ring-red-500/20;
+  }
+
+  .addr-error {
+    @apply text-xs text-red-600 mt-1;
+  }
+
+  .addr-footer {
+    @apply flex flex-wrap items-center gap-4 pt-1;
+  }
+
+  .addr-type-group {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .addr-type-chip {
+    @apply inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium text-slate-700 cursor-pointer hover:bg-slate-50 transition focus-within:ring-2 focus-within:ring-[#6D28D9]/40;
+  }
+
+  .addr-type-chip--active {
+    @apply border-[#6D28D9] bg-[#6D28D9]/10 text-[#6D28D9] font-semibold;
+  }
+
+  .addr-default {
+    @apply flex items-center gap-2 text-sm text-slate-700 cursor-pointer;
+  }
+
+  .addr-default input {
+    @apply w-4 h-4 accent-[#6D28D9];
+  }
+
+  .addr-actions {
+    @apply flex items-center gap-2 sm:ml-auto;
+  }
+
+  .addr-btn {
+    @apply inline-flex items-center justify-center px-5 py-2 rounded-lg text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .addr-btn--primary {
+    @apply bg-[#6D28D9] text-white hover:bg-[#5b21b6];
+  }
+
+  .addr-btn--secondary {
+    @apply text-slate-600 hover:text-slate-900;
+  }
+
+  .profile-address-add-link {
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#6D28D9] text-white text-sm font-semibold hover:bg-[#5b21b6] transition shadow-sm shrink-0;
+  }
+
+  .profile-address-icon-box {
+    @apply shrink-0 w-10 h-10 rounded-lg bg-[#6D28D9] text-white flex items-center justify-center;
+  }
+
+  .profile-address-default-badge {
+    @apply shrink-0 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-[#6D28D9]/10 text-[#6D28D9];
+  }
+
+  .profile-address-link-btn {
+    @apply inline-flex items-center gap-1.5 text-xs font-semibold text-[#6D28D9] hover:text-[#5b21b6] transition;
+  }
+
+  .profile-address-link-btn--danger {
+    @apply text-red-600 hover:text-red-700;
+  }
+
+  .profile-address-empty {
+    @apply text-center py-6 px-2;
+  }
+
+  .profile-address-loading {
+    @apply flex items-center justify-center gap-2 py-8 text-slate-500;
+  }
+
+  .profile-address-manage-btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition;
+  }
+
+  .profile-toolbar {
+    @apply flex items-center justify-between mb-5 gap-3 flex-wrap;
+  }
+
+  .profile-btn-back {
+    @apply inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition shadow-sm;
+  }
+
+  .profile-btn-dark {
+    @apply px-4 py-2 text-sm rounded-xl bg-slate-900 text-white hover:bg-black transition shadow-sm font-medium;
+  }
+
+  .profile-btn-prime {
+    @apply relative px-4 py-2 text-sm rounded-xl border border-blue-300 bg-white text-blue-700 hover:bg-blue-50 transition font-medium shadow-sm;
+  }
+
+  .profile-badge-soon {
+    @apply absolute -top-2 -right-2 bg-blue-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none;
+  }
+
+  .profile-page-title {
+    @apply text-2xl sm:text-3xl font-bold text-slate-900 mb-6 tracking-tight;
+  }
+
+  .profile-page-subtitle {
+    @apply text-slate-500 text-sm mb-6;
+  }
+
+  .profile-card {
+    @apply bg-white rounded-2xl border border-slate-200/90 shadow-lg shadow-slate-200/50 divide-y divide-slate-100 overflow-hidden;
+  }
+
+  .profile-row {
+    @apply px-5 sm:px-6 py-5;
+  }
+
+  .profile-row-label {
+    @apply text-sm font-semibold text-slate-900;
+  }
+
+  .profile-row-value {
+    @apply text-sm text-slate-600 mt-1;
+  }
+
+  .profile-row-hint {
+    @apply text-xs text-slate-400 mt-1.5 leading-relaxed max-w-md;
+  }
+
+  .profile-pill-btn {
+    @apply shrink-0 px-4 py-1.5 border border-slate-200 rounded-full text-sm text-slate-700 bg-white hover:bg-slate-50 hover:border-slate-300 transition font-medium;
+  }
+
+  .profile-pill-btn:disabled {
+    @apply opacity-50 cursor-not-allowed hover:bg-white hover:border-slate-200;
+  }
+
+  .profile-field-input {
+    @apply w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm bg-slate-50/80 transition-colors;
+  }
+
+  .profile-save-btn {
+    @apply px-5 py-2 text-sm font-semibold rounded-full text-white transition disabled:opacity-50;
+    background-image: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  }
+
+  .profile-save-btn:hover:not(:disabled) {
+    background-image: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+  }
+
+  .profile-cancel-btn {
+    @apply px-5 py-2 text-sm text-slate-600 hover:text-slate-900 transition;
+  }
+
+  .profile-row--actions {
+    @apply bg-slate-50/80;
+  }
+
+  .profile-account-actions-grid {
+    @apply grid grid-cols-1 sm:grid-cols-3 gap-3;
+  }
+
+  .profile-account-action-card {
+    @apply flex flex-col items-center justify-center gap-2 px-3 py-4 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-[#6D28D9] hover:bg-[#6D28D9]/5 hover:border-[#6D28D9]/30 transition text-center min-h-[88px];
+  }
+
+  .profile-account-action-card--danger {
+    @apply text-red-600 hover:bg-red-50 hover:border-red-200;
+  }
+
+  .profile-logout-link {
+    @apply mt-4 inline-flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-slate-800 transition;
+  }
+
+  .auth-top-link {
+    @apply inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors mb-4;
+  }
+
+  .auth-title {
+    @apply text-2xl font-semibold text-slate-900 leading-tight;
+  }
+
+  .auth-subtitle {
+    @apply text-sm font-medium text-slate-600 mt-1.5;
+  }
+
+  .auth-input {
+    @apply w-full pl-9 pr-3 h-9 rounded-lg border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 outline-none text-xs sm:text-sm bg-slate-50/90 transition-colors;
+  }
+
+  .auth-input--toggle {
+    @apply pr-10;
+  }
+
+  .auth-select {
+    @apply w-full pl-9 pr-9 h-9 rounded-lg border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 outline-none text-xs sm:text-sm appearance-none bg-slate-50/90 transition-colors cursor-pointer;
+  }
+
+  .auth-label {
+    @apply text-xs font-medium text-slate-700;
+  }
+
+  .auth-alert {
+    @apply rounded-lg px-3 py-2 text-xs flex items-center gap-2;
+  }
+
+  .auth-alert--error {
+    @apply auth-alert text-red-700 bg-red-50 border border-red-100;
+  }
+
+  .auth-alert--success {
+    @apply auth-alert text-emerald-700 bg-emerald-50 border border-emerald-100;
+  }
+
+  .auth-submit-btn {
+    @apply w-full h-9 rounded-lg font-semibold text-xs sm:text-sm transition-all disabled:opacity-60 disabled:cursor-not-allowed shadow-sm;
+  }
+
+  .auth-submit-btn-primary,
+  .auth-submit-btn-blue {
+    @apply auth-submit-btn text-white;
+    background-image: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  }
+
+  .auth-submit-btn-primary:hover:not(:disabled),
+  .auth-submit-btn-blue:hover:not(:disabled) {
+    background-image: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  }
+
+  .mobile-header-icon-btn {
+    @apply relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-[#D4AF37] transition-colors hover:bg-white/15 active:bg-white/20;
+  }
+
+  .mobile-header-menu-btn {
+    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#D4AF37]/70 bg-white/5 text-white transition-all hover:bg-white/10 active:bg-white/15;
+  }
+
+  .mobile-header-menu-btn--open {
+    @apply border-[#D4AF37] bg-white/10 text-[#D4AF37];
+  }
+
+  .mobile-menu-panel {
+    @apply rounded-2xl border border-white/10 bg-[#243047] p-3 shadow-xl shadow-black/30;
+  }
+
+  .mobile-menu-location-pill {
+    @apply mb-3 flex w-full items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-left text-xs text-white/90 transition-colors hover:bg-white/10;
+  }
+
+  .mobile-menu-currency-row {
+    @apply mb-3 flex items-center gap-2;
+  }
+
+  .mobile-menu-currency-label {
+    @apply shrink-0 text-xs font-medium text-white/70;
+  }
+
+  .mobile-menu-currency-select {
+    @apply h-8 w-full appearance-none rounded-lg border border-white/15 bg-white px-2.5 pr-7 text-xs font-semibold text-slate-900 outline-none;
+  }
+
+  .mobile-menu-auth-row {
+    @apply mb-3 grid grid-cols-2 gap-2;
+  }
+
+  .mobile-menu-login-btn {
+    @apply flex h-9 items-center justify-center rounded-lg bg-[#D4AF37] text-xs font-semibold text-[#1e293b] transition-colors hover:bg-[#c9a030];
+  }
+
+  .mobile-menu-signup-btn {
+    @apply flex h-9 items-center justify-center rounded-lg border border-[#D4AF37] text-xs font-semibold text-[#D4AF37] transition-colors hover:bg-[#D4AF37]/10;
+  }
+
+  .mobile-menu-user-name {
+    @apply mb-2 px-1 text-sm font-semibold text-white;
+  }
+
+  .mobile-menu-links {
+    @apply divide-y divide-white/10 border-t border-white/10 pt-1;
+  }
+
+  .mobile-menu-link-row {
+    @apply flex items-center gap-3 px-1 py-2.5 text-sm text-white transition-colors hover:bg-white/5;
+  }
+
+  .mobile-menu-link-row--danger {
+    @apply text-red-400 hover:text-red-300;
+  }
+
+  .btn-primary {
+    @apply bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200 shadow-sm;
+  }
+  
+  .btn-secondary {
+    @apply bg-white border-2 border-blue-500 text-blue-700 hover:bg-blue-500 hover:text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200;
+  }
+  
+  .input-field {
+    @apply bg-white border border-gray-300 text-gray-900 px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors;
+  }
+  
+  .card {
+    @apply bg-white border border-gray-200 rounded-xl p-6 shadow-sm;
+  }
+
+  .btn-standard {
+    @apply inline-flex items-center justify-center h-9 sm:h-10 px-4 sm:px-5 rounded-md text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap;
+  }
+
+  .btn-standard-primary {
+    @apply btn-standard bg-blue-600 text-white hover:bg-blue-700;
+  }
+
+  .btn-standard-outline {
+    @apply btn-standard border border-blue-300 text-blue-700 hover:bg-blue-50;
+  }
+}
+
+.min-h-screen.bg-white,
+.min-h-screen.bg-gray-50,
+.min-h-screen.bg-gray-100 {
+  background: transparent !important;
+}
+
+.min-h-screen.bg-white.pdp-page-shell {
+  background: #ffffff !important;
+  background-image: none !important;
+}
+
+@media (max-width: 639px) {
+  .pdp-page-shell img#product-hero-image {
+    max-width: 100% !important;
+    max-height: 100% !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain;
+  }
+}
+
+.native-pull-indicator {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  z-index: 1600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(17, 24, 39, 0.9);
+  color: #f9fafb;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+.native-pull-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #f59e0b;
+}
+
+.native-pull-spinner--active {
+  animation: spin 0.9s linear infinite;
+}
+
+.native-pull-label {
+  letter-spacing: 0.01em;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Theme override: remove yellow/amber visual bias globally */
+.bg-amber-50,
+.bg-yellow-50 {
+  background-color: #eff6ff !important;
+}
+
+.bg-amber-100,
+.bg-yellow-100 {
+  background-color: #dbeafe !important;
+}
+
+.bg-amber-500,
+.bg-yellow-500 {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
+
+.text-amber-600,
+.text-amber-700,
+.text-yellow-800 {
+  color: #1d4ed8 !important;
+}
+
+.border-amber-200,
+.border-yellow-200,
+.border-amber-300,
+.border-amber-500 {
+  border-color: #93c5fd !important;
+}
+
+.from-amber-50,
+.from-yellow-50,
+.to-yellow-50,
+.to-amber-50,
+.to-orange-50,
+.via-yellow-500,
+.from-amber-500,
+.to-amber-400 {
+  --tw-gradient-from: #dbeafe var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: #ffffff var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), #eff6ff, var(--tw-gradient-to) !important;
+}
+
+@media (max-width: 640px) {
+  .seller-auth-shell,
+  .auth-page-shell {
+    background-attachment: scroll;
+  }
+}
+
+@layer utilities {
+  @keyframes cartBounce {
+    0%   { transform: scale(1)    rotate(0deg);   }
+    25%  { transform: scale(1.45) rotate(-12deg); }
+    55%  { transform: scale(1.25) rotate(10deg);  }
+    75%  { transform: scale(1.1)  rotate(-5deg);  }
+    100% { transform: scale(1)    rotate(0deg);   }
+  }
+  .cart-bounce {
+    animation: cartBounce 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fadeIn {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+
+  @keyframes navShimmer {
+    0%   { background-position: -400% center; }
+    100% { background-position: 400% center; }
+  }
+  .nav-progress-bar {
+    background: linear-gradient(90deg, #f59e0b 0%, #fde68a 40%, #f59e0b 60%, #fbbf24 100%);
+    background-size: 400% 100%;
+    animation: navShimmer 1.4s linear infinite;
+  }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(100%); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .animate-slide-in {
+    animation: slideIn 0.25s ease-out;
+  }
+}

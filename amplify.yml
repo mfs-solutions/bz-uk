@@ -1,0 +1,47 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - npm ci
+    build:
+      commands:
+        - npm run build:buyer
+  artifacts:
+    baseDirectory: dist-buyer
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*
+customHeaders:
+  - pattern: '**/*'
+    headers:
+      - key: X-Frame-Options
+        value: DENY
+      - key: X-Content-Type-Options
+        value: nosniff
+      - key: X-XSS-Protection
+        value: '1; mode=block'
+      - key: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - key: Permissions-Policy
+        value: 'geolocation=(self), microphone=(), camera=(self), payment=()'
+      - key: Strict-Transport-Security
+        value: 'max-age=31536000; includeSubDomains; preload'
+      - key: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self' https://js.stripe.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://api.stripe.com https://*.supabase.co wss://*.supabase.co https://open.er-api.com https://nominatim.openstreetmap.org; media-src 'self' https://*.supabase.co data: blob:; frame-src https://js.stripe.com https://www.youtube.com https://youtube.com https://www.youtube-nocookie.com; object-src 'none'; base-uri 'self'; form-action 'self'"
+  - pattern: '/assets/*'
+    headers:
+      - key: Cache-Control
+        value: 'public, max-age=31536000, immutable'
+  - pattern: '/images/*'
+    headers:
+      - key: Cache-Control
+        value: 'public, max-age=31536000, immutable'
+  - pattern: '/.well-known/assetlinks.json'
+    headers:
+      - key: Content-Type
+        value: application/json
+      - key: Cache-Control
+        value: 'public, max-age=86400'

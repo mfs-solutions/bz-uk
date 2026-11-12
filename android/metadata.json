@@ -1,0 +1,6 @@
+{
+  "name": "Bzead",
+  "description": "Bzead application featuring a clean logo splash screen with smooth fade-in transition.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

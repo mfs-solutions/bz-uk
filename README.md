@@ -1,5 +1,8 @@
-# bz-uk
+# BZEAD UK
 
-Multivendor ecommerce platform.
+United Kingdom-focused BZEAD buyer storefront using the shared Supabase marketplace backend.
 
-This repository is the starting point for the project. Open it in GitHub Codespaces to begin development.
+See [APP_DOCUMENTATION.md](./APP_DOCUMENTATION.md) for the application
+architecture, features, routes, UK market and GBP pricing behavior, BZEAD.COM /
+BZEAD.ASIA context, Supabase integration, environment variables, and deployment
+instructions.

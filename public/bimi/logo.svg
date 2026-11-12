@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="0 0 512 512" preserveAspectRatio="xMidYMid meet">
+  <title>BZEAD</title>
+  <rect width="512" height="512" rx="96" ry="96" fill="#f59e0b"/>
+  <path d="M 160 120 L 296 120 C 340 120 372 156 372 200 C 372 228 358 248 340 258 C 366 268 384 290 384 320 C 384 360 348 392 296 392 L 160 392 Z M 208 168 L 208 240 L 296 240 C 316 240 328 224 328 204 C 328 184 316 168 296 168 Z M 208 280 L 208 360 L 296 360 C 320 360 336 344 336 320 C 336 296 320 280 296 280 Z" fill="#ffffff"/>
+</svg>

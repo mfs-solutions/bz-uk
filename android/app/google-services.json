@@ -1,0 +1,67 @@
+{
+  "project_info": {
+    "project_number": "259470153416",
+    "project_id": "bzead-58220",
+    "storage_bucket": "bzead-58220.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:259470153416:android:8f577d361723b2f088f7fd",
+        "android_client_info": {
+          "package_name": "com.bzead.buyerapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBYnss0ifE1ch9gW3wbzMb_gvhwpdwNVbU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:259470153416:android:78ffbce761381e0288f7fd",
+        "android_client_info": {
+          "package_name": "com.bzead.india"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBYnss0ifE1ch9gW3wbzMb_gvhwpdwNVbU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:259470153416:android:84cde4d0172beec388f7fd",
+        "android_client_info": {
+          "package_name": "com.bzead.uk"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBYnss0ifE1ch9gW3wbzMb_gvhwpdwNVbU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
