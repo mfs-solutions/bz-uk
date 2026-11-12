@@ -162,6 +162,9 @@ verify_jwt = false
 [functions.stripe-webhook]
 verify_jwt = false
 
+[functions.uk-hosted-checkout-webhook]
+verify_jwt = false
+
 [functions.product-og]
 verify_jwt = false
 

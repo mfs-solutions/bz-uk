@@ -1,6 +1,7 @@
 import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { recoverUkHostedCheckout } from "../_shared/uk-hosted-checkout.ts";
+import { sendUkOrderEmail, sendUkOrderPush } from "../_shared/uk-order-email.ts";
 
 const origins = new Set(["https://bzead.uk", "https://www.bzead.uk"]);
 
@@ -78,6 +79,8 @@ Deno.serve(async (req: Request) => {
     if (result.status === "paid") {
       const { error } = await db.rpc("notify_uk_hosted_order", { p_snapshot_id: result.snapshotId });
       if (error) throw error;
+      await sendUkOrderEmail(db, url, key, result.orderId, result.snapshotId);
+      await sendUkOrderPush(db, url, key, result.orderId, result.snapshotId);
       return json({ status: result.status, orderId: result.orderId, paymentIntentId: result.paymentIntentId }, 200);
     }
     if (result.status === "expired") {

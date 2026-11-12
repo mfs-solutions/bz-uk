@@ -1752,7 +1752,14 @@ const Checkout: React.FC = () => {
   // recover from transient backend / network failures on slow mobile links.
   const [paymentInitRetryToken, setPaymentInitRetryToken] = useState(0);
   const [revolutRedirectLoading, setRevolutRedirectLoading] = useState(false);
-  const [ukQuote, setUkQuote] = useState<{ snapshotId: string; total: number; shipping: number } | null>(null);
+  const [ukQuote, setUkQuote] = useState<{
+    snapshotId: string;
+    total: number;
+    shipping: number;
+    subtotal: number;
+    offerDiscount: number;
+    platformHandlingCharge: number;
+  } | null>(null);
   const [ukSessionId, setUkSessionId] = useState<string | null>(null);
   const [ukRedirectLoading, setUkRedirectLoading] = useState(false);
   const quoteRequestRef = useRef(0);
@@ -1918,6 +1925,8 @@ const Checkout: React.FC = () => {
             customerName: checkoutData.customerName,
             customerPhone: checkoutData.customerPhone,
             notes: checkoutData.notes,
+            estimatedDeliveryDate: checkoutData.estimatedDeliveryDate,
+            estimatedDeliveryDays: checkoutData.estimatedDeliveryDays,
           };
           const requestKey = JSON.stringify({ body, paymentInitRetryToken });
           if (ukQuoteRequestRef.current?.key !== requestKey) {
@@ -1942,10 +1951,22 @@ const Checkout: React.FC = () => {
             || !('snapshotId' in data) || typeof data.snapshotId !== 'string'
             || !('total' in data) || typeof data.total !== 'number'
             || !('shipping' in data) || typeof data.shipping !== 'number'
+            || !('subtotal' in data) || typeof data.subtotal !== 'number'
+            || !('offerDiscount' in data) || typeof data.offerDiscount !== 'number'
+            || !('platformHandlingCharge' in data) || typeof data.platformHandlingCharge !== 'number'
             || !('currency' in data) || data.currency !== 'GBP') {
             throw new Error('The checkout quote is invalid. Please return to review.');
           }
-          if (!cancelled) setUkQuote({ snapshotId: data.snapshotId, total: data.total, shipping: data.shipping });
+          if (!cancelled) {
+            setUkQuote({
+              snapshotId: data.snapshotId,
+              total: data.total,
+              shipping: data.shipping,
+              subtotal: data.subtotal,
+              offerDiscount: data.offerDiscount,
+              platformHandlingCharge: data.platformHandlingCharge,
+            });
+          }
           return;
         }
 
@@ -2564,7 +2585,12 @@ const Checkout: React.FC = () => {
           <div className="max-w-2xl mx-auto bg-white border border-[#ddd] rounded-lg p-6 space-y-4">
             <h3 className="text-lg font-bold text-[#0f1111]">Pay securely with Stripe</h3>
             <p className="text-sm text-[#555]">You will be redirected to Stripe to complete your payment.</p>
+            <p className="text-sm">Items: {fmtCurrency(ukQuote?.subtotal ?? 0, 'GBP')}</p>
+            {(ukQuote?.offerDiscount ?? 0) > 0 && (
+              <p className="text-sm text-green-700">Offer savings: -{fmtCurrency(ukQuote?.offerDiscount ?? 0, 'GBP')}</p>
+            )}
             <p className="text-sm">Delivery: {fmtCurrency(ukQuote?.shipping ?? 0, 'GBP')}</p>
+            <p className="text-sm">Platform handling: {fmtCurrency(ukQuote?.platformHandlingCharge ?? 0, 'GBP')}</p>
             {ukQuote && liveQuote && Math.round(ukQuote.total * 100) !== Math.round(liveQuote.totalAmount * 100) && (
               <p className="text-sm text-amber-800">Your checkout total has been updated after checking current prices and delivery.</p>
             )}

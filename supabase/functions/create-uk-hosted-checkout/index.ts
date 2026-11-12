@@ -68,14 +68,14 @@ Deno.serve(async (req: Request) => {
     if (account.id !== accountId) throw new Error("Stripe account does not match UK configuration");
     const customer = await getOrCreateStripeCustomer({
       async find(userId, stripeAccountId, live) {
-        const { data, error: lookupError } = await db.from("stripe_customers")
+        const { data, error: lookupError } = await db.from("uk_stripe_customers")
           .select("stripe_customer_id").eq("user_id", userId)
           .eq("stripe_account_id", stripeAccountId).eq("livemode", live).maybeSingle();
         if (lookupError) throw lookupError;
         return data?.stripe_customer_id ?? null;
       },
       async insertIfAbsent(userId, stripeAccountId, live, customerId) {
-        const { error: insertError } = await db.from("stripe_customers").upsert({
+        const { error: insertError } = await db.from("uk_stripe_customers").upsert({
           user_id: userId, stripe_account_id: stripeAccountId, livemode: live, stripe_customer_id: customerId,
         }, { onConflict: "user_id,stripe_account_id,livemode", ignoreDuplicates: true });
         if (insertError) throw insertError;
@@ -87,10 +87,15 @@ Deno.serve(async (req: Request) => {
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer,
+      client_reference_id: auth.user.id,
       payment_method_types: ["card"],
+      expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
       saved_payment_method_options: {
         payment_method_save: "enabled",
         payment_method_remove: "enabled",
+      },
+      payment_intent_data: {
+        metadata: { uk_checkout_snapshot_id: snapshotId, uk_storefront: "bzead.uk" },
       },
       line_items: [{
         price_data: {

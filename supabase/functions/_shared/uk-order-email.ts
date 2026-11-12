@@ -1,9 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const makeDatabase = (url: string, key: string) => createClient(url, key);
-type Database = ReturnType<typeof makeDatabase>;
+type Database = ReturnType<typeof createClient>;
 
-export async function sendUkOrderEmail(db: Database, url: string, serviceKey: string, orderId: string) {
+async function deliverUkOrderEmail(
+  db: Database,
+  url: string,
+  serviceKey: string,
+  orderId: string,
+) {
   const { data: order, error: orderError } = await db.from("orders")
     .select("id,user_id,total_amount,currency,payment_method,shipping_address,shipping_carrier,shipping_service_level,expected_delivery_date,created_at")
     .eq("id", orderId).single();
@@ -98,4 +102,120 @@ export async function sendUkOrderEmail(db: Database, url: string, serviceKey: st
       email: profile.email, recipientType: "admin", recipientName: profile.full_name || "Admin", recipientUserId: profile.id,
     }));
   await send(buyerData, admins);
+}
+
+export async function sendUkOrderEmail(
+  db: Database,
+  url: string,
+  serviceKey: string,
+  orderId: string,
+  snapshotId: string,
+) {
+  const { data: claimed, error: claimError } = await db.rpc("claim_uk_hosted_order_email", {
+    p_snapshot_id: snapshotId,
+  });
+  if (claimError) throw claimError;
+  if (claimed !== true) {
+    const { data: snapshot, error } = await db.from("uk_hosted_checkout_sessions")
+      .select("email_notifications_sent_at").eq("id", snapshotId).single();
+    if (error) throw error;
+    if (snapshot.email_notifications_sent_at) return;
+    throw new Error("UK order email delivery is already in progress");
+  }
+
+  try {
+    await deliverUkOrderEmail(db, url, serviceKey, orderId);
+    const { error } = await db.rpc("complete_uk_hosted_order_email", {
+      p_snapshot_id: snapshotId,
+      p_sent: true,
+    });
+    if (error) throw error;
+  } catch (error) {
+    const { error: releaseError } = await db.rpc("complete_uk_hosted_order_email", {
+      p_snapshot_id: snapshotId,
+      p_sent: false,
+    });
+    if (releaseError) {
+      throw new AggregateError([error, releaseError], "Order email failed and its retry claim could not be released");
+    }
+    throw error;
+  }
+}
+
+export async function sendUkOrderPush(
+  db: Database,
+  url: string,
+  serviceKey: string,
+  orderId: string,
+  snapshotId: string,
+) {
+  const { data: claimed, error: claimError } = await db.rpc("claim_uk_hosted_order_push", {
+    p_snapshot_id: snapshotId,
+  });
+  if (claimError) throw claimError;
+  if (claimed !== true) {
+    const { data: snapshot, error } = await db.from("uk_hosted_checkout_sessions")
+      .select("push_notifications_sent_at").eq("id", snapshotId).single();
+    if (error) throw error;
+    if (snapshot.push_notifications_sent_at) return;
+    throw new Error("UK order push delivery is already in progress");
+  }
+
+  try {
+    const [{ data: order, error: orderError }, { data: items, error: itemsError },
+      { data: admins, error: adminError }] = await Promise.all([
+      db.from("orders").select("id,user_id,order_number").eq("id", orderId).single(),
+      db.from("order_items").select("seller_id").eq("order_id", orderId),
+      db.from("profiles").select("id").eq("role", "admin"),
+    ]);
+    if (orderError || !order) throw orderError || new Error("Order not found for push notification");
+    if (itemsError) throw itemsError;
+    if (adminError) throw adminError;
+
+    const recipientUserIds = [...new Set([
+      order.user_id,
+      ...(items || []).map((item) => item.seller_id).filter((id): id is string => Boolean(id)),
+      ...(admins || []).map((admin) => admin.id),
+    ])];
+    if (recipientUserIds.length > 50) {
+      throw new Error("UK order has too many push notification recipients");
+    }
+
+    const response = await fetch(`${url}/functions/v1/send-push-notification`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({
+        orderId,
+        recipientUserIds,
+        title: "Order placed successfully",
+        message: "Your UK order has been placed and is being processed.",
+        type: "order_placed",
+        metadata: { order_id: orderId, order_number: order.order_number, snapshot_id: snapshotId },
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`Push notification service returned ${response.status}`);
+    }
+    const result = await response.json() as { success?: boolean };
+    if (result.success !== true) throw new Error("UK order push notification was not delivered");
+
+    const { error: completeError } = await db.rpc("complete_uk_hosted_order_push", {
+      p_snapshot_id: snapshotId,
+      p_sent: true,
+    });
+    if (completeError) throw completeError;
+  } catch (error) {
+    const { error: releaseError } = await db.rpc("complete_uk_hosted_order_push", {
+      p_snapshot_id: snapshotId,
+      p_sent: false,
+    });
+    if (releaseError) {
+      throw new AggregateError([error, releaseError], "Push notification failed and its retry claim could not be released");
+    }
+    throw error;
+  }
 }

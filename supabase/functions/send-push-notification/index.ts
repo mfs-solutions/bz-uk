@@ -127,10 +127,15 @@ function buildDataPayload(
   return payload;
 }
 
-async function authenticateUser(req: Request, supabaseUrl: string, serviceRoleKey: string): Promise<string | null> {
+async function authenticateUser(
+  req: Request,
+  supabaseUrl: string,
+  serviceRoleKey: string,
+): Promise<{ userId: string; isServiceRole: boolean } | null> {
   const authHeader = req.headers.get('Authorization') || '';
   const jwt = authHeader.replace(/^Bearer\s+/i, '').trim();
   if (!jwt) return null;
+  if (jwt === serviceRoleKey) return { userId: '', isServiceRole: true };
 
   const authRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
     method: 'GET',
@@ -143,7 +148,7 @@ async function authenticateUser(req: Request, supabaseUrl: string, serviceRoleKe
   if (!authRes.ok) return null;
 
   const authUser = await authRes.json() as { id?: string };
-  return authUser?.id || null;
+  return authUser?.id ? { userId: authUser.id, isServiceRole: false } : null;
 }
 
 async function loadOrderParticipants(
@@ -493,8 +498,8 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Server configuration error' }, 500, req);
     }
 
-    const senderUserId = await authenticateUser(req, supabaseUrl, serviceRoleKey);
-    if (!senderUserId) {
+    const sender = await authenticateUser(req, supabaseUrl, serviceRoleKey);
+    if (!sender) {
       return json({ error: 'Unauthorized' }, 401, req);
     }
 
@@ -505,32 +510,57 @@ Deno.serve(async (req: Request) => {
     }
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
-    const senderIsAdmin = await loadActorIsAdmin(adminClient, senderUserId);
-
     const participants = await loadOrderParticipants(adminClient, parsedBody.orderId);
     if (!participants) {
       return json({ error: 'Order not found' }, 404, req);
     }
 
-    if (!senderIsAdmin) {
-      const senderIsBuyer = participants.buyerId === senderUserId;
-      const senderIsSeller = participants.sellerIds.includes(senderUserId);
-      if (!senderIsBuyer && !senderIsSeller) {
-        return json({ error: 'Forbidden' }, 403, req);
+    if (sender.isServiceRole) {
+      if (parsedBody.type !== 'order_placed') {
+        return json({ error: 'Service-role push is limited to order notifications' }, 403, req);
       }
-
+      const { data: ukCheckout, error: ukCheckoutError } = await adminClient
+        .from('uk_hosted_checkout_sessions')
+        .select('id')
+        .eq('order_id', parsedBody.orderId)
+        .not('payment_intent_id', 'is', null)
+        .maybeSingle();
+      if (ukCheckoutError) {
+        return json({ error: 'Failed to verify UK order' }, 500, req);
+      }
+      if (!ukCheckout) {
+        return json({ error: 'Service-role push is limited to paid UK orders' }, 403, req);
+      }
       const allowedRecipientIds = new Set<string>([
         participants.buyerId,
         ...participants.sellerIds,
         ...participants.adminIds,
       ]);
-
-      const unauthorizedRecipient = parsedBody.recipientUserIds.find(
-        (recipientId) => !allowedRecipientIds.has(recipientId),
-      );
-
-      if (unauthorizedRecipient) {
+      if (parsedBody.recipientUserIds.some((recipientId) => !allowedRecipientIds.has(recipientId))) {
         return json({ error: 'Forbidden recipient list' }, 403, req);
+      }
+    } else {
+      const senderIsAdmin = await loadActorIsAdmin(adminClient, sender.userId);
+      const senderIsBuyer = participants.buyerId === sender.userId;
+      const senderIsSeller = participants.sellerIds.includes(sender.userId);
+      if (!senderIsAdmin) {
+        if (!senderIsBuyer && !senderIsSeller) {
+          return json({ error: 'Forbidden' }, 403, req);
+        }
+
+        const allowedRecipientIds = new Set<string>([
+          participants.buyerId,
+          ...participants.sellerIds,
+          ...participants.adminIds,
+        ]);
+
+        const unauthorizedRecipient = parsedBody.recipientUserIds.find(
+          (recipientId) => !allowedRecipientIds.has(recipientId),
+        );
+
+        if (unauthorizedRecipient) {
+          return json({ error: 'Forbidden recipient list' }, 403, req);
+        }
       }
     }
 

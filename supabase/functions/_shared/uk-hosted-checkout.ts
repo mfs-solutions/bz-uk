@@ -1,8 +1,7 @@
 import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const makeDatabase = (url: string, key: string) => createClient(url, key);
-type Database = ReturnType<typeof makeDatabase>;
+type Database = ReturnType<typeof createClient>;
 
 export async function recoverUkHostedCheckout(
   stripe: Stripe,

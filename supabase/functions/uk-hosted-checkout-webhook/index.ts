@@ -1,7 +1,7 @@
 import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { recoverUkHostedCheckout } from "../_shared/uk-hosted-checkout.ts";
-import { sendUkOrderEmail } from "../_shared/uk-order-email.ts";
+import { sendUkOrderEmail, sendUkOrderPush } from "../_shared/uk-order-email.ts";
 
 function json(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {
@@ -42,7 +42,8 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Invalid signature" }, 400);
   }
   if (event.type !== "checkout.session.completed" &&
-      event.type !== "checkout.session.async_payment_succeeded") {
+      event.type !== "checkout.session.async_payment_succeeded" &&
+      event.type !== "checkout.session.expired") {
     return json({ received: true }, 200);
   }
 
@@ -56,11 +57,26 @@ Deno.serve(async (req: Request) => {
 
     const eventSession = event.data.object as Stripe.Checkout.Session;
     const db = createClient(supabaseUrl, serviceKey);
+    if (event.type === "checkout.session.expired") {
+      if (eventSession.metadata?.uk_checkout_snapshot_id) {
+        const { error } = await db.from("uk_hosted_checkout_sessions")
+          .update({ closed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq("id", eventSession.metadata.uk_checkout_snapshot_id)
+          .eq("stripe_session_id", eventSession.id)
+          .eq("stripe_account_id", accountId)
+          .eq("livemode", livemode)
+          .is("order_id", null)
+          .is("closed_at", null);
+        if (error) throw error;
+      }
+      return json({ received: true }, 200);
+    }
     const result = await recoverUkHostedCheckout(stripe, db, eventSession.id, accountId, livemode);
     if (result.status === "paid") {
       const { error } = await db.rpc("notify_uk_hosted_order", { p_snapshot_id: result.snapshotId });
       if (error) throw error;
-      await sendUkOrderEmail(db, supabaseUrl, serviceKey, result.orderId);
+      await sendUkOrderEmail(db, supabaseUrl, serviceKey, result.orderId, result.snapshotId);
+      await sendUkOrderPush(db, supabaseUrl, serviceKey, result.orderId, result.snapshotId);
     }
     return json({ received: true }, 200);
   } catch (error) {

@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculateDestinationCheckoutPricing } from "../../../src/lib/checkoutPricingService.ts";
 import { isUKCountry } from "../../../src/config/market.ts";
+import { calculateUkHostedCheckoutTotal } from "../../../src/lib/ukHostedCheckoutPricing.ts";
 
 const origins = new Set(["https://bzead.uk", "https://www.bzead.uk"]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -100,9 +101,9 @@ Deno.serve(async (req: Request) => {
     const productIds = [...new Set(cart.map((item) => item.product_id))];
     const [{ data: products, error: productError }, { data: countryRows, error: rateError },
       { data: variants, error: variantError }] = await Promise.all([
-      db.from("products").select("id,name,price,currency,stock,sku,hsn_code,image_url").in("id", productIds),
-      db.from("countries").select("currency_code,exchange_rate").eq("is_active", true).not("exchange_rate", "is", null),
-      db.from("product_variants").select("id,product_id,sku,stock").in("product_id", productIds),
+      db.from("products").select("id,name,price,currency,stock,sku,hsn_code,image_url,seller_id").in("id", productIds),
+      db.from("countries").select("id,country_name,country_code,short_code,iso2,currency_code,exchange_rate").eq("is_active", true).not("exchange_rate", "is", null),
+      db.from("product_variants").select("id,product_id,sku,price,stock").in("product_id", productIds),
     ]);
     if (productError || rateError || variantError) throw productError || rateError || variantError;
     if (!products || products.length !== productIds.length || !countryRows?.length) {
@@ -173,18 +174,17 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Products or the selected delivery option are no longer available. Return to review." }, 409);
     }
     const shipping = selected?.shipping ?? quote.shipping;
-    const total = selected?.total ?? quote.total;
-    const amount = Math.round(total * 100);
-    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 5_000_000 ||
-        !Number.isFinite(shipping) || shipping < 0 || quote.platformHandlingCharge !== 0 ||
-        Math.round((quote.subtotal - quote.offerDiscount + shipping + quote.platformHandlingCharge) * 100) !== amount) {
-      throw new Error("Quote totals are invalid");
-    }
-    const shippingAddress = {
-      street: text(address.street), city: text(address.city), state: text(address.state),
-      postalCode: text(address.postalCode), country: text(address.country), countryCode: text(address.countryCode),
-      full_name: text(body.customerName), phone: text(body.customerPhone),
-    };
+    const requestedDeliveryDate = typeof body.estimatedDeliveryDate === "string"
+      ? new Date(body.estimatedDeliveryDate)
+      : null;
+    const deliveryDate = requestedDeliveryDate && Number.isFinite(requestedDeliveryDate.getTime())
+      ? requestedDeliveryDate.toISOString()
+      : null;
+    const selectedDeliveryDays = selected?.estimatedDays
+      ? parseInt(selected.estimatedDays, 10)
+      : typeof body.estimatedDeliveryDays === "string"
+        ? parseInt(body.estimatedDeliveryDays, 10)
+        : NaN;
     const rpcItems = cart.map((item, index) => {
       const product = productMap.get(item.product_id)!;
       return {
@@ -199,32 +199,97 @@ Deno.serve(async (req: Request) => {
         },
       };
     });
+    const { data: sharedTotals, error: sharedTotalsError } = await db.rpc("quote_uk_hosted_checkout_total", {
+      p_items: rpcItems,
+      p_country: "United Kingdom",
+      p_shipping_charge: shipping,
+    });
+    if (sharedTotalsError) throw sharedTotalsError;
+    if (!isRecord(sharedTotals)) throw new Error("Shared order pricing returned an invalid quote");
+    const sharedSubtotal = Number(sharedTotals.product_subtotal);
+    const sharedRpcTotal = Number(sharedTotals.total_amount);
+    const platformHandlingCharge = Number(sharedTotals.platform_handling_charge);
+    if (!isRecord(sharedTotals.financial_snapshot)) {
+      throw new Error("Shared order pricing returned no financial snapshot");
+    }
+    if (![sharedSubtotal, sharedRpcTotal, platformHandlingCharge].every(Number.isFinite) ||
+        sharedSubtotal <= 0 || sharedRpcTotal <= 0 || platformHandlingCharge < 0) {
+      throw new Error("Shared order pricing returned invalid amounts");
+    }
+    const snapshotLines = quote.items.map((line, index) => {
+      const item = cart[index];
+      const product = productMap.get(item.product_id)!;
+      const productVariants = (variants || []).filter((variant) => variant.product_id === item.product_id);
+      const selectedVariant = productVariants.find((variant) =>
+        (line.selectedVariantId && variant.id === line.selectedVariantId) ||
+        (!line.selectedVariantId && line.selectedVariantSku && token(variant.sku) === token(line.selectedVariantSku))
+      );
+      const sellerUnitPrice = productVariants.length > 1 && selectedVariant
+        ? Number(selectedVariant.price)
+        : Number(product.price);
+      if (!Number.isFinite(sellerUnitPrice) || sellerUnitPrice <= 0) {
+        throw new Error("A seller price could not be captured for checkout");
+      }
+      return { ...line, seller_unit_price: sellerUnitPrice };
+    });
+    const total = calculateUkHostedCheckoutTotal(sharedRpcTotal, quote.offerDiscount);
+    const amount = Math.round(total * 100);
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 5_000_000 ||
+        !Number.isFinite(shipping) || shipping < 0 ||
+        quote.offerDiscount > sharedSubtotal ||
+        Math.round((sharedRpcTotal - quote.offerDiscount) * 100) !== amount) {
+      throw new Error("Quote totals are invalid");
+    }
+    const shippingAddress = {
+      street: text(address.street), city: text(address.city), state: text(address.state),
+      postalCode: text(address.postalCode), country: text(address.country), countryCode: text(address.countryCode),
+      full_name: text(body.customerName), phone: text(body.customerPhone),
+    };
     const snapshot = {
       user_id: auth.user.id,
       stripe_account_id: accountId,
       livemode: /^(sk|rk)_live_/.test(stripeKey),
       amount_minor: amount,
       currency: "gbp",
-      quote: { subtotal: quote.subtotal, offer_discount: quote.offerDiscount, shipping, total, lines: quote.items },
+      quote: {
+        subtotal: sharedSubtotal,
+        offer_discount: quote.offerDiscount,
+        shipping,
+        platform_handling_charge: platformHandlingCharge,
+        total,
+        financial_snapshot: sharedTotals.financial_snapshot,
+        lines: snapshotLines,
+      },
       cart_snapshot: cart.map((item) => ({ id: item.id, quantity: item.quantity, updated_at: item.updated_at })),
       rpc_params: {
         p_user_id: auth.user.id, p_items: rpcItems,
         p_shipping_address: shippingAddress, p_billing_address: shippingAddress,
         p_phone: text(body.customerPhone), p_notes: text(body.notes),
-        p_currency: "GBP", p_country: shippingAddress.country,
+        p_currency: "GBP", p_country: "United Kingdom",
         p_shipping_charge: shipping, p_actual_shipping_cost: quote.actualShippingCost,
         p_platform_shipping_margin: quote.platformShippingMargin,
         p_shipping_carrier: selected?.carrierName || null,
         p_shipping_service_level: selected?.serviceLevel || null,
         p_shipping_provider: selected?.provider || null,
         p_shipping_rate_id: selected?.rateId || null,
-        p_expected_delivery_days: selected?.estimatedDays ? parseInt(selected.estimatedDays, 10) : null,
+        p_expected_delivery_date: deliveryDate,
+        p_expected_delivery_days: Number.isSafeInteger(selectedDeliveryDays) && selectedDeliveryDays > 0
+          ? selectedDeliveryDays
+          : null,
       },
     };
     const { data: saved, error: saveError } = await db.from("uk_hosted_checkout_sessions")
       .insert(snapshot).select("id").single();
     if (saveError || !saved?.id) throw saveError || new Error("Could not save checkout quote");
-    return json({ snapshotId: saved.id, currency: "GBP", total, shipping, subtotal: quote.subtotal, offerDiscount: quote.offerDiscount }, 200);
+    return json({
+      snapshotId: saved.id,
+      currency: "GBP",
+      total,
+      shipping,
+      subtotal: sharedSubtotal,
+      offerDiscount: quote.offerDiscount,
+      platformHandlingCharge,
+    }, 200);
   } catch (error) {
     console.error("[quote-uk-hosted-checkout] Quote failed:", error);
     return json({ error: "Unable to verify your checkout. Please return to review and try again." }, 502);
