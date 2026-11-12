@@ -4,12 +4,6 @@ import { supabase } from './supabase';
 
 export type SponsoredSection = 'featured' | 'trending' | 'hot-deals';
 
-export interface SponsoredProductsPage {
-  data: Product[];
-  count: number;
-  error: string | null;
-}
-
 export interface SponsoredSectionConfig {
   id: string;
   section: SponsoredSection;
@@ -155,50 +149,6 @@ export const getActiveSponsoredProductsBySection = async (
 
   return result;
 };
-
-const HOMEPAGE_SPONSORED_PRODUCT_FIELDS =
-  'id, public_product_id, name, slug, description, price, mrp, discount_price, currency, image_url, images, seller_id, category, brand, stock, rating, review_count, is_featured, tags, item_condition, created_at';
-
-const applyActiveHomepageSponsoredFilters = (query: any) => {
-  const now = nowIso();
-  return query
-    .eq('is_active', true)
-    .lte('start_at', now)
-    .gt('end_at', now)
-    .eq('products.approval_status', 'approved')
-    .eq('products.is_active', true);
-};
-
-export async function getActiveHomepageSponsoredProductCount(): Promise<{ count: number; error: string | null }> {
-  const query = supabase
-    .from('sponsored_products')
-    .select('id, products!inner(id)', { count: 'exact', head: true });
-  const { count, error } = await applyActiveHomepageSponsoredFilters(query);
-  return { count: count || 0, error: error?.message || null };
-}
-
-export async function fetchActiveHomepageSponsoredProductsPage(
-  section: SponsoredSection,
-  limit: number,
-  offset: number,
-): Promise<SponsoredProductsPage> {
-  const query = supabase
-    .from('sponsored_products')
-    .select(`id, products!inner(${HOMEPAGE_SPONSORED_PRODUCT_FIELDS})`, { count: 'exact' })
-    .eq('section', section);
-  const { data, count, error } = await applyActiveHomepageSponsoredFilters(query)
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .range(offset, offset + limit - 1);
-
-  return {
-    data: ((data || []) as any[])
-      .map((row) => row.products as Product | null)
-      .filter((product): product is Product => Boolean(product)),
-    count: count || 0,
-    error: error?.message || null,
-  };
-}
 
 export const isProductUsedInOtherSection = (
   productId: string,
