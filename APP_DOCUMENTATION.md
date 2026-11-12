@@ -367,6 +367,10 @@ variable for the UK deployment.
 The flow uses the isolated `uk_hosted_checkout_sessions` and
 `uk_stripe_customers` tables in
 `supabase/migrations/20261112024000_uk_hosted_checkout_production_hardening.sql`.
+Checkout Sessions use Stripe's dynamic payment-method selection; the UK
+function does not force card-only payments. Stripe displays enabled methods
+only when they are eligible for the UK Stripe account, GBP transaction, buyer,
+and individual Checkout Session.
 The original `20261112023000_uk_hosted_checkout_recovery.sql` migration is
 already applied in production and remains unchanged. UK
 Stripe configuration uses `UK_STRIPE_SECRET_KEY`, `UK_STRIPE_ACCOUNT_ID`, and

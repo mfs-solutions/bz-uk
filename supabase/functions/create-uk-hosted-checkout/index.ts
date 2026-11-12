@@ -93,7 +93,6 @@ Deno.serve(async (req: Request) => {
       mode: "payment",
       customer,
       client_reference_id: auth.user.id,
-      payment_method_types: ["card"],
       expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
       saved_payment_method_options: {
         payment_method_save: "enabled",
