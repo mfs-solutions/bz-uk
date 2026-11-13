@@ -4,7 +4,7 @@ import { StorefrontHeader } from '../components/layout/StorefrontHeader';
 import { Footer } from '../components/layout/Footer';
 import { MobileNav } from '../components/layout/MobileNav';
 import { ProductCard } from '../components/products/ProductCard';
-import { Menu, X, Star, DollarSign, Package, ArrowLeft } from 'lucide-react';
+import { SlidersHorizontal, X, Star, Tag, ArrowLeft } from 'lucide-react';
 import { fetchProductsBySection, fetchCategoriesFlat, searchPublicProductsByKeywords, sectionMeta, type ProductSection } from '../lib/productService';
 import { fetchPublicProductPrices } from '../lib/pricingService';
 import { useCurrency } from '../contexts/CurrencyContext';
@@ -51,7 +51,6 @@ export const SectionProducts: React.FC = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [priceError, setPriceError] = useState<string | null>(null);
-  const [searchTotalCount, setSearchTotalCount] = useState(0);
   const [hasMoreSearchResults, setHasMoreSearchResults] = useState(false);
   const searchRequestId = useRef(0);
 
@@ -68,7 +67,6 @@ export const SectionProducts: React.FC = () => {
     let cancelled = false;
     const requestId = ++searchRequestId.current;
     setSearchError(null);
-    setSearchTotalCount(0);
     setHasMoreSearchResults(false);
 
     if (!currentSection) {
@@ -106,7 +104,6 @@ export const SectionProducts: React.FC = () => {
             category_name: nameMap[p.category] || '',
           })) as Product[];
           setProducts(enriched);
-          setSearchTotalCount(searchRes.totalCount);
           setHasMoreSearchResults(searchRes.totalCount > enriched.length);
           setLoading(false);
         }
@@ -168,7 +165,6 @@ export const SectionProducts: React.FC = () => {
           setHasMoreSearchResults(merged.length < totalCount);
           return merged;
         });
-        setSearchTotalCount(totalCount);
       }
       setLoadingMore(false);
     }
@@ -342,58 +338,54 @@ export const SectionProducts: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-white pb-16 md:pb-0">
+    <div className="min-h-screen bg-[#f8f9fb] pb-16 md:pb-0">
       <StorefrontHeader />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
         {/* Page Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between gap-4 mb-6">
           <div>
             <button
               onClick={() => navigate('/')}
-              className="flex items-center gap-1 text-gray-500 hover:text-amber-600 transition-colors text-sm mb-2"
+              className="flex items-center gap-1.5 text-slate-600 hover:text-amber-700 transition-colors text-sm"
             >
               <ArrowLeft className="h-4 w-4" />
               Back to Home
             </button>
-            <h1 className="text-xl md:text-2xl font-bold text-black mb-1">
-              {info.icon} {info.title}
-            </h1>
-            <p className="text-sm text-gray-500">{info.subtitle}</p>
+            <h1 className="sr-only">{info.title}</h1>
             {searchTerm && (
               <p className="text-xs text-amber-600 mt-1">
                 Search results for "{searchParams.get('search')}"
               </p>
             )}
-            <p className="text-xs text-gray-500 mt-1">
-              {searchTerm
-                ? `${filteredProducts.length} shown · ${searchTotalCount} matching products`
-                : `${filteredProducts.length} products`}
-            </p>
           </div>
 
           {/* Mobile Filter Toggle */}
           <button
             onClick={() => setShowSidebar(!showSidebar)}
-            className="md:hidden p-1.5 bg-white text-amber-600 rounded-lg hover:bg-gray-50 transition-colors"
+            aria-expanded={showSidebar}
+            aria-controls="section-product-filters"
+            className="md:hidden shrink-0 inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 text-[#142b55] rounded-lg text-sm font-semibold hover:bg-slate-50 transition-colors"
           >
-            {showSidebar ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            {showSidebar ? <X className="h-4 w-4" /> : <SlidersHorizontal className="h-4 w-4" />}
+            Filters
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-[14rem_minmax(0,1fr)] lg:grid-cols-[16rem_minmax(0,1fr)] gap-5 lg:gap-6">
           {/* Sidebar Filters */}
           <aside
+            id="section-product-filters"
             className={`${
               showSidebar ? 'block' : 'hidden'
-            } md:block bg-white border border-gray-100 rounded-xl p-4 h-fit sticky top-24 md:col-span-1`}
+            } md:block bg-white border border-slate-200 rounded-xl p-4 lg:p-5 h-fit`}
           >
-            <h2 className="text-lg font-bold text-black mb-4">Filters</h2>
+            <h2 className="text-lg font-bold text-[#142b55] mb-4">Filters</h2>
 
             {/* Sort By */}
-            <div className="mb-6">
-              <h3 className="text-base font-semibold text-black mb-2 flex items-center gap-2">
-                <Package className="h-4 w-4 text-amber-600" />
+            <div className="mb-5 pb-5 border-b border-slate-100">
+              <h3 className="text-base font-semibold text-[#142b55] mb-2 flex items-center gap-2">
+                <SlidersHorizontal className="h-4 w-4 text-[#254a84]" />
                 Sort By
               </h3>
               <select
@@ -404,7 +396,8 @@ export const SectionProducts: React.FC = () => {
                     sortBy: e.target.value as FilterOptions['sortBy'],
                   }))
                 }
-                className="w-full bg-white border border-gray-100 text-black rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500"
+                aria-label="Sort products"
+                className="w-full bg-white border border-slate-200 text-slate-800 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400"
               >
                 <option value="featured">Featured</option>
                 <option value="price-low-high">Price: Low to High</option>
@@ -417,14 +410,14 @@ export const SectionProducts: React.FC = () => {
             {/* Category Filter */}
             {availableCategories.length > 1 && (
               <div className="mb-6 pb-6 border-b border-gray-100">
-                <h3 className="text-base font-semibold text-black mb-3">Category</h3>
-                <div className="space-y-2">
+                <h3 className="text-base font-semibold text-[#142b55] mb-3 flex items-center gap-2"><Tag className="h-4 w-4 text-[#254a84]" />Category</h3>
+                <div className="space-y-1">
                   <button
                     onClick={() => setFilters((prev) => ({ ...prev, category: null }))}
                     className={`w-full text-left px-3 py-2 rounded-lg transition-all duration-300 text-sm ${
                       filters.category === null
-                        ? 'bg-amber-500 text-white font-medium'
-                        : 'bg-white text-gray-600 hover:bg-gray-50'
+                        ? 'bg-amber-100 text-amber-900 font-semibold'
+                        : 'bg-white text-slate-600 hover:bg-slate-50'
                     }`}
                   >
                     All Categories
@@ -440,8 +433,8 @@ export const SectionProducts: React.FC = () => {
                       }
                       className={`w-full text-left px-3 py-2 rounded-lg transition-all duration-300 text-sm ${
                         filters.category === cat.id
-                          ? 'bg-amber-500 text-white font-medium'
-                          : 'bg-white text-gray-600 hover:bg-gray-50'
+                          ? 'bg-amber-100 text-amber-900 font-semibold'
+                          : 'bg-white text-slate-600 hover:bg-slate-50'
                       }`}
                     >
                       {cat.name}
@@ -453,8 +446,8 @@ export const SectionProducts: React.FC = () => {
 
             {/* Price Range Filter */}
             <div className="mb-6 pb-6 border-b border-gray-100">
-              <h3 className="text-base font-semibold text-black mb-3 flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-amber-600" />
+              <h3 className="text-base font-semibold text-[#142b55] mb-3 flex items-center gap-2">
+                <span aria-hidden="true" className="text-[#254a84] font-bold">{currency === 'GBP' ? '£' : currency}</span>
                 Price Range
               </h3>
               <div className="space-y-4">
@@ -566,7 +559,7 @@ export const SectionProducts: React.FC = () => {
           </aside>
 
           {/* Products Grid */}
-          <div className="md:col-span-3">
+          <div className="min-w-0">
             {(searchError || priceError) && (
               <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
                 {searchError || priceError}
@@ -598,6 +591,7 @@ export const SectionProducts: React.FC = () => {
                   <ProductCard
                     key={product.id}
                     product={product}
+                    listingStyle
                     publicUnitPrice={publicPriceMap[product.id]}
                     markupMrp={publicMrpMap[product.id]}
                     priceLoading={publicPriceLoading || Boolean(

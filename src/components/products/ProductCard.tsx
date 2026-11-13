@@ -18,6 +18,7 @@ interface ProductCardProps {
   priceLoading?: boolean;
   markupMrp?: number;
   imageLoading?: 'eager' | 'lazy';
+  listingStyle?: boolean;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({
@@ -26,6 +27,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   priceLoading = false,
   markupMrp,
   imageLoading,
+  listingStyle = false,
 }) => {
   const { user } = useAuth();
   const { items } = useCart();
@@ -73,7 +75,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     <>
     <Link
       to={`/products/${product.slug || product.id}`}
-      className="relative bg-white border border-gray-100 rounded-xl overflow-hidden group cursor-pointer block hover:shadow-md transition-shadow duration-300"
+      className={`relative bg-white border rounded-xl overflow-hidden group cursor-pointer block hover:shadow-md transition-shadow duration-300 ${listingStyle ? 'h-full border-slate-200' : 'border-gray-100'}`}
     >
       {/* Badges */}
       <div className="absolute top-2 left-2 z-10 flex flex-col space-y-1">
@@ -159,7 +161,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       </div>
 
       {/* Product Details */}
-      <div className="p-1.5 md:p-3">
+      <div className={listingStyle ? 'p-3 md:p-4' : 'p-1.5 md:p-3'}>
         {/* Rating & Brand */}
         <div className="flex items-center justify-between mb-0.5 md:mb-1.5">
           {product.rating && (
@@ -174,12 +176,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         </div>
 
         {/* Product Title */}
-        <h3 className="text-black font-medium text-xs md:text-base leading-tight mb-0 md:mb-0.5 line-clamp-2 min-h-[1.5rem] md:min-h-[2.25rem]">
+        <h3 className={listingStyle
+          ? 'text-slate-900 font-semibold text-sm md:text-base leading-snug mb-1 line-clamp-2 min-h-[2.5rem] md:min-h-[2.75rem]'
+          : 'text-black font-medium text-xs md:text-base leading-tight mb-0 md:mb-0.5 line-clamp-2 min-h-[1.5rem] md:min-h-[2.25rem]'}>
           {product.name}
         </h3>
 
         {/* Category / Brand */}
-        <p className="hidden md:block text-[10px] md:text-xs text-gray-500 mb-1.5">
+        <p className={listingStyle ? 'text-xs text-slate-500 mb-2 truncate' : 'hidden md:block text-[10px] md:text-xs text-gray-500 mb-1.5'}>
           {(product as any).category_name || product.brand || ''}
         </p>
 
