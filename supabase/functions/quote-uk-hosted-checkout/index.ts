@@ -2,7 +2,11 @@ import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { calculateDestinationCheckoutPricing } from "../../../src/lib/checkoutPricingService.ts";
 import { isUKCountry } from "../../../src/config/market.ts";
-import { calculateUkHostedCheckoutTotal } from "../../../src/lib/ukHostedCheckoutPricing.ts";
+import {
+  calculateUkHostedCheckoutTotal,
+  canReusePendingUkHostedCheckout,
+  fingerprintUkHostedCheckoutRequest,
+} from "../../../src/lib/ukHostedCheckoutPricing.ts";
 import {
   expireOpenUnpaidCheckout,
   getAbandonedCheckoutAction,
@@ -81,6 +85,27 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Invalid delivery option" }, 400);
     }
     const text = (value: unknown) => typeof value === "string" ? value.trim().slice(0, 1000) : "";
+    const requestFingerprint = await fingerprintUkHostedCheckoutRequest({
+      cartItemIds: body.cartItemIds.map((id) => String(id)).sort(),
+      shippingAddress: {
+        street: text(address.street),
+        city: text(address.city),
+        state: text(address.state),
+        postalCode: text(address.postalCode),
+        country: text(address.country),
+        countryCode: text(address.countryCode),
+      },
+      shippingTier: tier,
+      customerName: text(body.customerName),
+      customerPhone: text(body.customerPhone),
+      notes: text(body.notes),
+      estimatedDeliveryDate: typeof body.estimatedDeliveryDate === "string"
+        ? body.estimatedDeliveryDate
+        : null,
+      estimatedDeliveryDays: typeof body.estimatedDeliveryDays === "string"
+        ? body.estimatedDeliveryDays
+        : null,
+    });
     const db = createClient(url, key);
     const { data: auth, error: authError } = await db.auth.getUser(authorization.slice(7));
     if (authError || !auth.user) return json({ error: "Invalid authentication token" }, 401);
@@ -96,18 +121,74 @@ Deno.serve(async (req: Request) => {
       .lt("created_at", new Date(Date.now() - 5 * 60_000).toISOString());
     if (staleError) throw staleError;
     const { data: active, error: activeError } = await db.from("uk_hosted_checkout_sessions")
-      .select("id,stripe_session_id,stripe_account_id,livemode,amount_minor,currency")
+      .select("id,stripe_session_id,stripe_account_id,livemode,amount_minor,currency,created_at,quote,cart_snapshot")
       .eq("user_id", auth.user.id)
       .is("order_id", null).is("closed_at", null).maybeSingle();
     if (activeError) throw activeError;
     if (active) {
-      if (!active.stripe_session_id) {
-        return json({ error: "Your checkout is still being prepared. Please try again in a few seconds." }, 409);
-      }
       if (active.stripe_account_id !== accountId || active.livemode !== livemode || active.currency !== "gbp") {
         throw new Error("Active checkout does not match UK Stripe configuration");
       }
-
+      if (!active.stripe_session_id) {
+        const { data: rows, error: cartError } = await db.from("cart_items")
+          .select("id,product_id,quantity,selected_size,selected_color,selected_variant_id,selected_variant_sku,updated_at")
+          .eq("user_id", auth.user.id);
+        if (cartError) throw cartError;
+        const requested = new Set(body.cartItemIds);
+        const cart = (rows as CartRow[] || []).filter((row) =>
+          requested.has(`${row.product_id}::${token(row.selected_size)}::${token(row.selected_color)}::${token(row.selected_variant_sku)}`)
+        );
+        const currentCartSnapshot = cart
+          .map(({ id, quantity, updated_at }) => ({ id, quantity, updated_at }))
+          .sort((left, right) => left.id.localeCompare(right.id));
+        const savedQuote = isRecord(active.quote) ? active.quote : null;
+        const createdAt = Date.parse(active.created_at);
+        const isFresh = Number.isFinite(createdAt)
+          && Date.now() - createdAt <= 5 * 60_000
+          && createdAt <= Date.now() + 60_000;
+        const sameCart = cart.length === requested.size
+          && cart.every((item) => uuid.test(item.id) && uuid.test(item.product_id)
+            && Number.isSafeInteger(item.quantity) && item.quantity > 0 && item.quantity <= 1000);
+        if (
+          isFresh
+          && sameCart
+          && savedQuote
+          && canReusePendingUkHostedCheckout(
+            savedQuote.request_fingerprint,
+            requestFingerprint,
+            active.cart_snapshot,
+            currentCartSnapshot,
+          )
+        ) {
+          const total = Number(savedQuote.total);
+          const subtotal = Number(savedQuote.subtotal);
+          const shipping = Number(savedQuote.shipping);
+          const offerDiscount = Number(savedQuote.offer_discount);
+          const platformHandlingCharge = Number(savedQuote.platform_handling_charge);
+          if (
+            [total, subtotal, shipping, offerDiscount, platformHandlingCharge].every(Number.isFinite)
+            && total > 0
+            && subtotal > 0
+            && shipping >= 0
+            && offerDiscount >= 0
+            && platformHandlingCharge >= 0
+            && Math.round(total * 100) === Number(active.amount_minor)
+          ) {
+            return json({
+              snapshotId: active.id,
+              currency: "GBP",
+              total,
+              shipping,
+              subtotal,
+              offerDiscount,
+              platformHandlingCharge,
+            }, 200);
+          }
+        }
+        return json({
+          error: "A previous checkout attempt cannot be resumed with these cart details. Please wait for it to clear, then try again.",
+        }, 409);
+      }
       let existingSession = await stripe.checkout.sessions.retrieve(active.stripe_session_id);
       if (
         existingSession.metadata?.uk_checkout_snapshot_id !== active.id
@@ -339,6 +420,7 @@ Deno.serve(async (req: Request) => {
         shipping,
         platform_handling_charge: platformHandlingCharge,
         total,
+        request_fingerprint: requestFingerprint,
         financial_snapshot: sharedTotals.financial_snapshot,
         lines: snapshotLines,
       },
@@ -362,6 +444,51 @@ Deno.serve(async (req: Request) => {
     };
     const { data: saved, error: saveError } = await db.from("uk_hosted_checkout_sessions")
       .insert(snapshot).select("id").single();
+    if (saveError?.code === "23505") {
+      const { data: competing, error: competingError } = await db.from("uk_hosted_checkout_sessions")
+        .select("id,quote,cart_snapshot,amount_minor,currency")
+        .eq("user_id", auth.user.id)
+        .is("order_id", null).is("closed_at", null).maybeSingle();
+      if (competingError) throw competingError;
+      const competingQuote = isRecord(competing?.quote) ? competing.quote : null;
+      if (
+        competing
+        && competingQuote
+        && canReusePendingUkHostedCheckout(
+          competingQuote.request_fingerprint,
+          requestFingerprint,
+          competing.cart_snapshot,
+          snapshot.cart_snapshot,
+        )
+      ) {
+        const total = Number(competingQuote.total);
+        const subtotal = Number(competingQuote.subtotal);
+        const shipping = Number(competingQuote.shipping);
+        const offerDiscount = Number(competingQuote.offer_discount);
+        const platformHandlingCharge = Number(competingQuote.platform_handling_charge);
+        if (
+          competing.currency === "gbp"
+          && [total, subtotal, shipping, offerDiscount, platformHandlingCharge].every(Number.isFinite)
+          && total > 0
+          && subtotal > 0
+          && shipping >= 0
+          && offerDiscount >= 0
+          && platformHandlingCharge >= 0
+          && Math.round(total * 100) === Number(competing.amount_minor)
+        ) {
+          return json({
+            snapshotId: competing.id,
+            currency: "GBP",
+            total,
+            shipping,
+            subtotal,
+            offerDiscount,
+            platformHandlingCharge,
+          }, 200);
+        }
+      }
+      return json({ error: "Another checkout attempt is already being prepared. Please retry shortly." }, 409);
+    }
     if (saveError || !saved?.id) throw saveError || new Error("Could not save checkout quote");
     return json({
       snapshotId: saved.id,
