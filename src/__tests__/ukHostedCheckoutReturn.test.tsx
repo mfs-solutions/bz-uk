@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   syncCartWithBackend: vi.fn(),
 }));
 
+vi.mock('../components/layout/Header', () => ({ Header: () => null }));
 vi.mock('../contexts/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'buyer-1' }, currentAuthUser: null, loading: false }),
 }));
@@ -77,7 +78,7 @@ describe('UK hosted checkout return experience', () => {
 
     expect(await screen.findByRole('heading', { name: 'Payment Unsuccessful' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Retry Payment' })).toHaveAttribute('href', '/checkout/review');
-    expect(screen.getByRole('link', { name: 'Return to Cart' })).toHaveAttribute('href', '/cart');
+    expect(screen.getByRole('link', { name: 'Back to Cart' })).toHaveAttribute('href', '/cart');
   });
 
   it('verifies a cancellation return before showing the cancelled state', async () => {
@@ -90,7 +91,7 @@ describe('UK hosted checkout return experience', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Payment Cancelled' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'You cancelled the payment' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Return to Checkout' })).toHaveAttribute('href', '/checkout/review');
     expect(mocks.invoke).toHaveBeenCalledWith('verify-uk-hosted-checkout', {
       body: { sessionId: 'cs_live_cancelled123', action: 'cancel' },
@@ -107,7 +108,7 @@ describe('UK hosted checkout return experience', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Payment Cancelled' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'You cancelled the payment' })).toBeInTheDocument();
     expect(mocks.invoke).toHaveBeenCalledWith('verify-uk-hosted-checkout', {
       body: { snapshotId, action: 'cancel' },
     });
