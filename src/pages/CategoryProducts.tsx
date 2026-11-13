@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { StorefrontHeader } from '../components/layout/StorefrontHeader';
-import { Footer } from '../components/layout/Footer';
 import { MobileNav } from '../components/layout/MobileNav';
 import { ProductCard } from '../components/products/ProductCard';
 import {
@@ -322,7 +321,6 @@ export const CategoryProducts: React.FC = () => {
           <div className="h-5 w-48 rounded bg-gray-200 animate-pulse mb-5" />
           <ProductGridSkeleton count={8} />
         </main>
-        <Footer />
         <MobileNav />
       </div>
     );
@@ -361,7 +359,6 @@ export const CategoryProducts: React.FC = () => {
             )}
           </div>
         </main>
-        <Footer />
         <MobileNav />
       </div>
     );
@@ -912,7 +909,6 @@ export const CategoryProducts: React.FC = () => {
         </div>
       )}
 
-      <Footer />
       <MobileNav />
     </div>
   );

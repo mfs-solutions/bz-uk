@@ -8,7 +8,7 @@ vi.mock('react-router-dom', () => ({
   useSearchParams: () => [new URLSearchParams()],
 }));
 vi.mock('../components/layout/StorefrontHeader', () => ({ StorefrontHeader: () => null }));
-vi.mock('../components/layout/Footer', () => ({ Footer: () => null }));
+vi.mock('../components/layout/Footer', () => ({ Footer: () => <footer>Site footer</footer> }));
 vi.mock('../components/layout/MobileNav', () => ({ MobileNav: () => null }));
 vi.mock('../components/products/ProductCard', () => ({
   ProductCard: ({ product }: { product: { name: string } }) => <div data-testid="product">{product.name}</div>,
@@ -45,6 +45,7 @@ describe('section product listing', () => {
   it('opens mobile filters and keeps category and price sorting functional', async () => {
     render(<SectionProducts />);
     await screen.findByText('First');
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByTestId('product')).toHaveLength(2));
     expect(screen.getByRole('heading', { name: 'Featured Products' })).toHaveClass('sr-only');
     expect(screen.queryByText('Featured items')).not.toBeInTheDocument();

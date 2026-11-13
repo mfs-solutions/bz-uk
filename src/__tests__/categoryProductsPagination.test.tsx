@@ -15,7 +15,7 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
 }));
 vi.mock('../components/layout/StorefrontHeader', () => ({ StorefrontHeader: () => null }));
-vi.mock('../components/layout/Footer', () => ({ Footer: () => null }));
+vi.mock('../components/layout/Footer', () => ({ Footer: () => <footer>Site footer</footer> }));
 vi.mock('../components/layout/MobileNav', () => ({ MobileNav: () => null }));
 vi.mock('../components/products/ProductCard', () => ({
   ProductCard: ({ product }: { product: { id: string } }) => <div data-testid="product">{product.id}</div>,
@@ -68,7 +68,9 @@ describe('category product pagination', () => {
 
   it('fetches 25 at a time on scroll and stops after the last page', async () => {
     render(<CategoryProducts />);
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
     expect(await screen.findAllByTestId('product')).toHaveLength(25);
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: 'category-a' })).toHaveClass('sr-only');
     expect(screen.queryByText(/Showing \d+ results?/)).not.toBeInTheDocument();
     expect(screen.queryByRole('navigation')).not.toBeInTheDocument();

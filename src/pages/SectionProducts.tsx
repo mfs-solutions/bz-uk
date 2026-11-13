@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { StorefrontHeader } from '../components/layout/StorefrontHeader';
-import { Footer } from '../components/layout/Footer';
 import { MobileNav } from '../components/layout/MobileNav';
 import { ProductCard } from '../components/products/ProductCard';
 import { SlidersHorizontal, X, Star, Tag, ArrowLeft } from 'lucide-react';
@@ -331,7 +330,6 @@ export const SectionProducts: React.FC = () => {
             </button>
           </div>
         </main>
-        <Footer />
         <MobileNav />
       </div>
     );
@@ -617,7 +615,6 @@ export const SectionProducts: React.FC = () => {
         </div>
       </main>
 
-      <Footer />
       <MobileNav />
     </div>
   );
