@@ -369,13 +369,19 @@ Deno.serve(async (req: Request) => {
     });
     if (sharedTotalsError) throw sharedTotalsError;
     if (!isRecord(sharedTotals)) throw new Error("Shared order pricing returned an invalid quote");
-    const sharedSubtotal = Number(sharedTotals.product_subtotal);
-    const sharedRpcTotal = Number(sharedTotals.total_amount);
-    const platformHandlingCharge = Number(sharedTotals.platform_handling_charge);
+    // The cart pricing engine is the source of truth for product prices (per-product currency and
+    // country markups); the RPC only supplies the commission rate and the FX financial snapshot.
+    const sharedSubtotal = Number(quote.subtotal);
+    const commissionPercent = Number(sharedTotals.commission_percent);
+    const platformHandlingCharge = Math.round(
+      (sharedSubtotal - quote.offerDiscount + shipping) * commissionPercent,
+    ) / 100;
+    const sharedRpcTotal = Math.round((sharedSubtotal + shipping + platformHandlingCharge) * 100) / 100;
     if (!isRecord(sharedTotals.financial_snapshot)) {
       throw new Error("Shared order pricing returned no financial snapshot");
     }
-    if (![sharedSubtotal, sharedRpcTotal, platformHandlingCharge].every(Number.isFinite) ||
+    if (![sharedSubtotal, sharedRpcTotal, platformHandlingCharge, commissionPercent].every(Number.isFinite) ||
+        commissionPercent < 0 ||
         sharedSubtotal <= 0 || sharedRpcTotal <= 0 || platformHandlingCharge < 0) {
       throw new Error("Shared order pricing returned invalid amounts");
     }
@@ -397,6 +403,9 @@ Deno.serve(async (req: Request) => {
     });
     const total = calculateUkHostedCheckoutTotal(sharedRpcTotal, quote.offerDiscount);
     const amount = Math.round(total * 100);
+    if (Number.isFinite(selected?.total) && Math.round(Number(selected!.total) * 100) !== amount) {
+      throw new Error("Server quote does not match the cart total");
+    }
     if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 5_000_000 ||
         !Number.isFinite(shipping) || shipping < 0 ||
         quote.offerDiscount > sharedSubtotal ||
