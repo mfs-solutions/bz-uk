@@ -96,4 +96,20 @@ describe('UK hosted checkout return experience', () => {
       body: { sessionId: 'cs_live_cancelled123', action: 'cancel' },
     });
   });
+
+  it('can verify cancellation using the authenticated checkout snapshot when no session id is present', async () => {
+    const snapshotId = 'c3ad3c15-163b-4fea-8c3d-a755cb06c960';
+    mocks.invoke.mockResolvedValue({ data: { status: 'cancelled' }, error: null });
+
+    render(
+      <MemoryRouter initialEntries={[`/checkout/uk-payment-return?action=cancel&checkout_id=${snapshotId}`]}>
+        <UkHostedCheckoutReturn />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Payment Cancelled' })).toBeInTheDocument();
+    expect(mocks.invoke).toHaveBeenCalledWith('verify-uk-hosted-checkout', {
+      body: { snapshotId, action: 'cancel' },
+    });
+  });
 });

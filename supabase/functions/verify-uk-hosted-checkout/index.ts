@@ -42,16 +42,38 @@ Deno.serve(async (req: Request) => {
   if (!authorization?.startsWith("Bearer ")) return json({ error: "Authentication required" }, 401);
   try {
     const body: unknown = await req.json();
-    const sessionId = typeof body === "object" && body !== null && "sessionId" in body
-      ? body.sessionId : null;
-    if (typeof sessionId !== "string" || !/^cs_(test|live)_[A-Za-z0-9]+$/.test(sessionId)) {
-      return json({ error: "Invalid checkout session" }, 400);
-    }
+    const requestedSessionId = isRecord(body) ? body.sessionId : null;
+    const requestedSnapshotId = isRecord(body) ? body.snapshotId : null;
     const action = isRecord(body) && "action" in body ? body.action : "verify";
     if (action !== "verify" && action !== "cancel") return json({ error: "Invalid action" }, 400);
+    let sessionId = typeof requestedSessionId === "string"
+      && /^cs_(test|live)_[A-Za-z0-9]+$/.test(requestedSessionId)
+      ? requestedSessionId
+      : null;
+    const requestedSnapshotReference = typeof requestedSnapshotId === "string"
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedSnapshotId)
+      ? requestedSnapshotId
+      : null;
+    if (!sessionId && !requestedSnapshotReference) {
+      return json({ error: "Invalid checkout session" }, 400);
+    }
     const db = createClient(url, key);
     const { data: auth, error: authError } = await db.auth.getUser(authorization.slice(7));
     if (authError || !auth.user) return json({ error: "Invalid authentication token" }, 401);
+    if (!sessionId && requestedSnapshotReference) {
+      const { data: pendingSnapshot, error: pendingSnapshotError } = await db
+        .from("uk_hosted_checkout_sessions")
+        .select("stripe_session_id")
+        .eq("id", requestedSnapshotReference)
+        .eq("user_id", auth.user.id)
+        .maybeSingle();
+      if (pendingSnapshotError) throw pendingSnapshotError;
+      if (!pendingSnapshot?.stripe_session_id) {
+        return json({ error: "Checkout session not found" }, 404);
+      }
+      sessionId = pendingSnapshot.stripe_session_id;
+    }
+    if (!sessionId) return json({ error: "Invalid checkout session" }, 400);
     const stripe = new Stripe(stripeKey, {
       apiVersion: "2025-02-24.acacia",
       httpClient: Stripe.createFetchHttpClient(),
@@ -60,11 +82,11 @@ Deno.serve(async (req: Request) => {
     if (account.id !== accountId) throw new Error("Stripe account does not match UK configuration");
     const livemode = /^(sk|rk)_live_/.test(stripeKey);
     let session = await stripe.checkout.sessions.retrieve(sessionId);
-    const snapshotId = session.metadata?.uk_checkout_snapshot_id;
-    if (!snapshotId) throw new Error("Checkout Session has no saved quote reference");
+    const checkoutSnapshotId = session.metadata?.uk_checkout_snapshot_id;
+    if (!checkoutSnapshotId) throw new Error("Checkout Session has no saved quote reference");
     const { data: snapshot, error: snapshotError } = await db.from("uk_hosted_checkout_sessions")
       .select("id,user_id,stripe_session_id,stripe_account_id,livemode,amount_minor,currency,order_id,payment_intent_id,payment_failure_confirmed_at")
-      .eq("id", snapshotId).maybeSingle();
+      .eq("id", checkoutSnapshotId).maybeSingle();
     if (snapshotError) throw snapshotError;
     if (
       !snapshot

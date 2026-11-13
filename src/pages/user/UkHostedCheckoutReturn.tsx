@@ -27,6 +27,7 @@ type PaymentState =
   | { status: 'authentication-required' };
 
 const PENDING_UK_CHECKOUT_KEY = 'beauzead_uk_pending_checkout_session';
+const PENDING_UK_CHECKOUT_SNAPSHOT_KEY = 'beauzead_uk_pending_checkout_snapshot';
 const MAX_AUTOMATIC_CHECKS = 8;
 const CHECK_INTERVAL_MS = 1800;
 const MAX_AUTOMATIC_VERIFY_DURATION_MS = 25_000;
@@ -37,6 +38,22 @@ const VERIFYING_MESSAGES = [
   'Confirming your order...',
   'Almost there...',
 ];
+const isValidSessionId = (value: string) => /^cs_(test|live)_[A-Za-z0-9]+$/.test(value);
+const isValidSnapshotId = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+function clearPendingCheckoutContext(sessionId: string, snapshotId: string) {
+  try {
+    if (localStorage.getItem(PENDING_UK_CHECKOUT_KEY) === sessionId) {
+      localStorage.removeItem(PENDING_UK_CHECKOUT_KEY);
+    }
+    if (localStorage.getItem(PENDING_UK_CHECKOUT_SNAPSHOT_KEY) === snapshotId) {
+      localStorage.removeItem(PENDING_UK_CHECKOUT_SNAPSHOT_KEY);
+      localStorage.removeItem(PENDING_UK_CHECKOUT_KEY);
+    }
+  } catch (error) {
+    console.warn('[UkHostedCheckoutReturn] Could not clear pending checkout context:', error);
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -87,6 +104,7 @@ const UkHostedCheckoutReturn: React.FC = () => {
   const searchParams = new URLSearchParams(search);
   const cancelReturn = searchParams.get('action') === 'cancel';
   const sessionIdFromUrl = searchParams.get('session_id') || '';
+  const snapshotIdFromUrl = searchParams.get('checkout_id') || '';
   const [storedSessionId] = useState(() => {
     try {
       return localStorage.getItem(PENDING_UK_CHECKOUT_KEY) || '';
@@ -95,7 +113,18 @@ const UkHostedCheckoutReturn: React.FC = () => {
       return '';
     }
   });
-  const sessionId = sessionIdFromUrl || (cancelReturn ? storedSessionId : '');
+  const [storedSnapshotId] = useState(() => {
+    try {
+      return localStorage.getItem(PENDING_UK_CHECKOUT_SNAPSHOT_KEY) || '';
+    } catch (error) {
+      console.warn('[UkHostedCheckoutReturn] Could not read pending checkout reference:', error);
+      return '';
+    }
+  });
+  const snapshotId = snapshotIdFromUrl || (cancelReturn ? storedSnapshotId : '');
+  const storedSessionMatchesSnapshot = !snapshotIdFromUrl || storedSnapshotId === snapshotIdFromUrl;
+  const sessionId = sessionIdFromUrl
+    || (cancelReturn && storedSessionMatchesSnapshot ? storedSessionId : '');
 
   useEffect(() => {
     if (payment.status !== 'verifying') return;
@@ -111,7 +140,7 @@ const UkHostedCheckoutReturn: React.FC = () => {
       setPayment({ status: 'authentication-required' });
       return;
     }
-    if (!/^cs_(test|live)_[A-Za-z0-9]+$/.test(sessionId)) {
+    if (!isValidSessionId(sessionId) && !isValidSnapshotId(snapshotId)) {
       setPayment({ status: 'verification-error' });
       return;
     }
@@ -137,7 +166,10 @@ const UkHostedCheckoutReturn: React.FC = () => {
         try {
           const action = cancelReturn && check === 0 ? 'cancel' : 'verify';
           const request = supabase.functions.invoke('verify-uk-hosted-checkout', {
-            body: { sessionId, action },
+            body: {
+              action,
+              ...(isValidSessionId(sessionId) ? { sessionId } : { snapshotId }),
+            },
           });
           const { data, error } = await Promise.race([
             request,
@@ -158,13 +190,7 @@ const UkHostedCheckoutReturn: React.FC = () => {
           if (cancelled) return;
           if (nextPayment.status === 'success') {
             setPayment(nextPayment);
-            try {
-              if (localStorage.getItem(PENDING_UK_CHECKOUT_KEY) === sessionId) {
-                localStorage.removeItem(PENDING_UK_CHECKOUT_KEY);
-              }
-            } catch (storageError) {
-              console.warn('[UkHostedCheckoutReturn] Could not clear pending checkout session:', storageError);
-            }
+            clearPendingCheckoutContext(sessionId, snapshotId);
             void syncCartWithBackend(userId).catch((cartError: unknown) => {
               console.error('[UkHostedCheckoutReturn] Confirmed order cart sync failed:', cartError);
             });
@@ -172,13 +198,7 @@ const UkHostedCheckoutReturn: React.FC = () => {
           }
           if (nextPayment.status === 'failed' || nextPayment.status === 'cancelled') {
             setPayment(nextPayment);
-            try {
-              if (localStorage.getItem(PENDING_UK_CHECKOUT_KEY) === sessionId) {
-                localStorage.removeItem(PENDING_UK_CHECKOUT_KEY);
-              }
-            } catch (storageError) {
-              console.warn('[UkHostedCheckoutReturn] Could not clear pending checkout session:', storageError);
-            }
+            clearPendingCheckoutContext(sessionId, snapshotId);
             return;
           }
           setPayment(nextPayment);
@@ -202,7 +222,7 @@ const UkHostedCheckoutReturn: React.FC = () => {
       if (timer !== undefined) window.clearTimeout(timer);
       if (requestTimer !== undefined) window.clearTimeout(requestTimer);
     };
-  }, [attempt, cancelReturn, loading, sessionId, syncCartWithBackend, userId]);
+  }, [attempt, cancelReturn, loading, sessionId, snapshotId, syncCartWithBackend, userId]);
 
   const isVerifying = payment.status === 'verifying' || loading;
   const title = isVerifying
@@ -244,7 +264,7 @@ const UkHostedCheckoutReturn: React.FC = () => {
           : payment.status === 'processing'
             ? { label: 'Check Again', to: null, icon: RotateCcw }
             : payment.status === 'verification-error'
-                ? /^cs_(test|live)_[A-Za-z0-9]+$/.test(sessionId)
+                ? isValidSessionId(sessionId) || isValidSnapshotId(snapshotId)
                   ? { label: 'Retry Verification', to: null, icon: RotateCcw }
                   : { label: 'Return to Checkout', to: '/checkout/review', icon: ArrowRight }
               : null;

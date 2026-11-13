@@ -22,6 +22,7 @@ import {
 } from '../../config/market';
 import { isNativePlatform } from '../../mobile/nativePlatform';
 import { resolveCheckoutPaymentProvider } from '../../lib/paymentProvider';
+import { ukCheckoutAmountsMatch } from '../../lib/ukHostedCheckoutPricing';
 
 interface ShippingData {
   street: string;
@@ -112,7 +113,12 @@ const OrderSummaryPage: React.FC = () => {
   const [pincodeCodAvailable, setPincodeCodAvailable] = useState<boolean | null>(null);
   const [proceedError, setProceedError] = useState<string | null>(null);
   const [proceedLoading, setProceedLoading] = useState(false);
-  const [ukHostedCheckoutSnapshot, setUkHostedCheckoutSnapshot] = useState<{ key: string; id: string } | null>(null);
+  const [ukHostedCheckoutSnapshot, setUkHostedCheckoutSnapshot] = useState<{
+    key: string;
+    id: string;
+    total: number;
+    requiresReview: boolean;
+  } | null>(null);
   const [publicPriceMap, setPublicPriceMap] = useState<Record<string, number>>({});
   const [publicPriceLoading, setPublicPriceLoading] = useState(true);
   const pricingRequestRef = useRef(0);
@@ -509,6 +515,10 @@ const OrderSummaryPage: React.FC = () => {
 
   const calculateTotal = () => displayTotal;
 
+  useEffect(() => {
+    setUkHostedCheckoutSnapshot(null);
+  }, [activeCartItems, displayTotal, shippingData, shippingTier]);
+
   const handleProceedToPayment = async () => {
     if (proceedInFlightRef.current) return;
     setProceedError(null);
@@ -644,11 +654,11 @@ const OrderSummaryPage: React.FC = () => {
       };
       const quoteKey = JSON.stringify(quoteBody);
       try {
-        let snapshotId = ukHostedCheckoutSnapshot?.key === quoteKey
-          ? ukHostedCheckoutSnapshot.id
+        let savedQuote = ukHostedCheckoutSnapshot?.key === quoteKey
+          ? ukHostedCheckoutSnapshot
           : null;
 
-        if (!snapshotId) {
+        if (!savedQuote) {
           const { data: quote, error: quoteError } = await supabase.functions.invoke(
             'quote-uk-hosted-checkout',
             { body: quoteBody },
@@ -679,13 +689,37 @@ const OrderSummaryPage: React.FC = () => {
           ) {
             throw new Error('The checkout quote is invalid. Please return to review.');
           }
-          snapshotId = quote.snapshotId;
-          setUkHostedCheckoutSnapshot({ key: quoteKey, id: snapshotId });
+          if (!Number.isFinite(quote.total) || quote.total <= 0) {
+            throw new Error('The checkout quote contains an invalid total. Please return to review.');
+          }
+          savedQuote = {
+            key: quoteKey,
+            id: quote.snapshotId,
+            total: quote.total,
+            requiresReview: !ukCheckoutAmountsMatch(calculateTotal(), quote.total),
+          };
+          setUkHostedCheckoutSnapshot(savedQuote);
+          if (savedQuote.requiresReview) {
+            proceedInFlightRef.current = false;
+            setProceedLoading(false);
+            return;
+          }
+        } else if (savedQuote.requiresReview) {
+          savedQuote = { ...savedQuote, requiresReview: false };
+          setUkHostedCheckoutSnapshot(savedQuote);
+        } else if (
+          !ukCheckoutAmountsMatch(calculateTotal(), savedQuote.total)
+        ) {
+          savedQuote = { ...savedQuote, requiresReview: true };
+          setUkHostedCheckoutSnapshot(savedQuote);
+          proceedInFlightRef.current = false;
+          setProceedLoading(false);
+          return;
         }
 
         const { data: checkout, error: checkoutError } = await supabase.functions.invoke(
           'create-uk-hosted-checkout',
-          { body: { snapshotId } },
+          { body: { snapshotId: savedQuote.id } },
         );
         if (checkoutError) {
           throw new Error(await getEdgeFunctionErrorMessage(
@@ -707,6 +741,7 @@ const OrderSummaryPage: React.FC = () => {
         }
         try {
           localStorage.setItem('beauzead_uk_pending_checkout_session', checkout.sessionId);
+          localStorage.setItem('beauzead_uk_pending_checkout_snapshot', savedQuote.id);
         } catch (storageError) {
           console.warn('[OrderSummary] Could not persist pending checkout session for cancellation return:', storageError);
         }
@@ -1240,8 +1275,17 @@ const OrderSummaryPage: React.FC = () => {
                 <div className="border-t-2 border-[#ddd] pt-2 lg:pt-3 mt-2 lg:mt-3 mb-2 lg:mb-4">
                   <div className="flex justify-between text-base lg:text-[18px] font-bold text-[#b12704]">
                     <span>Order Total</span>
-                    <span>{formatCurrency(pricing ? calculateTotal() : Number.NaN, targetCurrency)}</span>
+                    <span>{formatCurrency(
+                      ukHostedCheckoutSnapshot?.total ?? (pricing ? calculateTotal() : Number.NaN),
+                      targetCurrency,
+                    )}</span>
                   </div>
+                </div>
+              )}
+
+              {ukHostedCheckoutSnapshot?.requiresReview && (
+                <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800" role="status">
+                  The verified checkout total changed. Review the updated total above before continuing.
                 </div>
               )}
 
@@ -1275,7 +1319,11 @@ const OrderSummaryPage: React.FC = () => {
                     : pricingError
                       ? 'Checkout config unavailable'
                     : isPricingReady
-                      ? useUkHostedCheckout ? 'Continue to Stripe' : 'Proceed to Payment'
+                      ? useUkHostedCheckout
+                        ? ukHostedCheckoutSnapshot?.requiresReview
+                          ? 'Accept updated total and continue to Stripe'
+                          : 'Continue to Stripe'
+                        : 'Proceed to Payment'
                       : 'Resolve checkout issues to continue'}
                 </button>
               )}

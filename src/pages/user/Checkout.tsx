@@ -21,7 +21,6 @@ import { resolveCheckoutPaymentProvider, type CheckoutPaymentProvider } from '..
 import { fetchMultiSellerTat, checkDeliveryServiceability } from '../../lib/tatService';
 import { calculateDestinationCheckoutPricing, type DestinationCheckoutPricing } from '../../lib/checkoutPricingService';
 import { useCurrency } from '../../contexts/CurrencyContext';
-import { useCart } from '../../contexts/CartContext';
 import { Header } from '../../components/layout/Header';
 import { Footer } from '../../components/layout/Footer';
 import { MobileNav } from '../../components/layout/MobileNav';
@@ -100,27 +99,6 @@ interface CheckoutItem {
   selectedVariantSku?: string;
   productImage?: string;
 }
-
-type CheckoutResultItem = {
-  productId: string;
-  productName: string;
-  quantity: number;
-  price: number;
-  productImage?: string;
-  selectedSize?: string;
-  selectedColor?: string;
-};
-
-type CheckoutResultState = {
-  paymentResult: 'success' | 'failed';
-  paymentIntentId: string;
-  orderId?: string;
-  tempOrderId?: string;
-  items: CheckoutResultItem[];
-  totalAmount: number;
-  currency: string;
-  failureReason?: string;
-};
 
 interface ShippingAddr {
   street: string;
@@ -268,6 +246,7 @@ const callCreateOrderSecure = async (params: Record<string, unknown>) => {
 
 const waitForRecoveredOrder = async (
   paymentIntentId: string,
+  userId: string,
   timeoutMs = 30_000,
   intervalMs = 2_000,
 ) => {
@@ -278,6 +257,8 @@ const waitForRecoveredOrder = async (
       .from('orders')
       .select('id, status, payment_status')
       .eq('payment_intent_id', paymentIntentId)
+      .eq('user_id', userId)
+      .in('payment_status', ['paid', 'completed', 'succeeded'])
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -292,70 +273,7 @@ const waitForRecoveredOrder = async (
   return null;
 };
 
-const TEMP_PENDING_ORDERS_KEY = 'beauzead_temp_pending_orders';
 const REVOLUT_PENDING_ORDER_ID_KEY = 'beauzead_revolut_pending_order_id';
-
-type TempPendingOrderRecord = {
-  tempOrderId: string;
-  paymentIntentId: string;
-  userId: string;
-  totalAmount: number;
-  currency: string;
-  createdAt: string;
-  status: 'processing';
-  paymentStatus: 'pending' | 'completed';
-  items: Array<{
-    productId: string;
-    productName: string;
-    quantity: number;
-    price: number;
-    productImage?: string;
-  }>;
-};
-
-const readTempPendingOrders = (): TempPendingOrderRecord[] => {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(TEMP_PENDING_ORDERS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const writeTempPendingOrders = (orders: TempPendingOrderRecord[]) => {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(TEMP_PENDING_ORDERS_KEY, JSON.stringify(orders));
-};
-
-const removeTempPendingOrder = (paymentIntentId: string) => {
-  const next = readTempPendingOrders().filter((order) => order.paymentIntentId !== paymentIntentId);
-  writeTempPendingOrders(next);
-};
-
-const upsertTempPendingOrder = (record: TempPendingOrderRecord) => {
-  const existing = readTempPendingOrders().filter((order) => order.paymentIntentId !== record.paymentIntentId);
-  existing.unshift(record);
-  writeTempPendingOrders(existing.slice(0, 20));
-};
-
-const getTempOrderDateToken = (date = new Date()) => {
-  const dd = String(date.getDate()).padStart(2, '0');
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const yy = String(date.getFullYear()).slice(-2);
-  return `${dd}${mm}${yy}`;
-};
-
-const getTemporaryOrderId = (isInternational: boolean) => {
-  const typeToken = isInternational ? 'INT' : 'DOM';
-  const dateToken = getTempOrderDateToken();
-  const sequenceKey = `beauzead_temp_order_seq_${typeToken}_${dateToken}`;
-  const current = Number(localStorage.getItem(sequenceKey) || '0') || 0;
-  const next = current + 1;
-  localStorage.setItem(sequenceKey, String(next));
-  return `TM${typeToken}${dateToken}${String(next).padStart(7, '0')}`;
-};
 
 const buildCheckoutRpcItems = (
   items: CheckoutItem[],
@@ -554,7 +472,6 @@ const CheckoutForm: React.FC<
   shippingRateId,
   shippingProvider,
 }) => {
-  const { clearCart } = useCart();
   const stripe = useStripe();
   const elements = useElements();
   const navigate = useNavigate();
@@ -571,14 +488,6 @@ const CheckoutForm: React.FC<
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [paymentElementReady, setPaymentElementReady] = useState(false);
-
-  const clearCheckoutCartState = useCallback(() => {
-    clearCart();
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('beauzead_checkout_shipping');
-      localStorage.removeItem('beauzead_checkout_selected_cart_ids');
-    }
-  }, [clearCart]);
 
   const [billingAddress, setBillingAddress] = useState<ShippingAddr>({ ...shippingAddress });
   const [sameAsShipping, setSameAsShipping] = useState(true);
@@ -735,18 +644,10 @@ const CheckoutForm: React.FC<
 
       setIsLoading(true);
       setError(null);
+      let paymentConfirmationStarted = false;
 
       try {
         const billing = sameAsShipping ? shippingAddress : billingAddress;
-        const checkoutResultItems: CheckoutResultItem[] = items.map((item) => ({
-          productId: item.productId,
-          productName: item.productName,
-          quantity: item.quantity,
-          price: item.price,
-          productImage: item.productImage,
-          selectedSize: item.selectedSize,
-          selectedColor: item.selectedColor,
-        }));
         const shippingAddressAny = shippingAddress as any;
         const productIds = items.map((item) => item.productId);
         const destinationPin = String(shippingAddress.postalCode || '').replace(/\s+/g, '');
@@ -849,6 +750,7 @@ const CheckoutForm: React.FC<
           billingAddressForStripe.country = billingCountryCode;
         }
 
+        paymentConfirmationStarted = true;
         const { error: confirmErr, paymentIntent } = await stripe.confirmPayment({
           elements,
           confirmParams: {
@@ -871,38 +773,14 @@ const CheckoutForm: React.FC<
         });
 
         if (confirmErr) {
-          const recoveredOrder = await waitForRecoveredOrder(paymentIntentId, 12_000, 1_500);
-          if (recoveredOrder?.id) {
-            clearCheckoutCartState();
-            const successResult: CheckoutResultState = {
-              paymentResult: 'success',
-              paymentIntentId,
-              orderId: String(recoveredOrder.id),
-              items: checkoutResultItems,
-              totalAmount,
-              currency: checkoutCurrency,
-            };
-            navigate('/checkout/confirmation', { state: { checkoutResult: successResult } });
-            setIsLoading(false);
-            return;
-          }
-
-          const failedResult: CheckoutResultState = {
-            paymentResult: 'failed',
-            paymentIntentId,
-            items: checkoutResultItems,
-            totalAmount,
-            currency: checkoutCurrency,
-            failureReason: confirmErr.message || 'Payment failed',
-          };
-          navigate('/checkout/confirmation', { state: { checkoutResult: failedResult } });
+          setError(confirmErr.message || 'We could not confirm the payment yet. You can safely retry this same payment method.');
           setIsLoading(false);
           return;
         }
 
         if (paymentIntent?.status === 'succeeded' || paymentIntent?.status === 'processing') {
-          const computedOrderStatus = paymentIntent.status === 'succeeded' ? 'processing' : 'pending';
-          const computedPaymentStatus = paymentIntent.status === 'succeeded' ? 'completed' : 'pending';
+          const computedOrderStatus = 'pending';
+          const computedPaymentStatus = 'pending';
           const computedPaymentMethod =
             paymentIntent.payment_method_types?.[0]
             || (typeof paymentIntent.payment_method === 'string' ? paymentIntent.payment_method : null)
@@ -954,229 +832,29 @@ const CheckoutForm: React.FC<
 
           if (orderErr || !order) {
             console.error('Order insert failed after Stripe capture. PaymentIntent:', paymentIntentId);
-            const destinationCountryToken = normalizeCountryToken(
-              shippingAddress.countryCode || shippingAddress.country,
-            );
-            const isInternationalOrder = !INDIA_COUNTRY_TOKENS.has(destinationCountryToken);
-            const tempOrderId = getTemporaryOrderId(isInternationalOrder);
-
-            upsertTempPendingOrder({
-              tempOrderId,
-              paymentIntentId,
-              userId: customerId,
-              totalAmount,
-              currency: checkoutCurrency,
-              createdAt: new Date().toISOString(),
-              status: 'processing',
-              paymentStatus: computedPaymentStatus,
-              items: items.map((item) => ({
-                productId: item.productId,
-                productName: item.productName,
-                quantity: item.quantity,
-                price: item.price,
-                productImage: item.productImage,
-              })),
-            });
-
-            const successResult: CheckoutResultState = {
-              paymentResult: 'success',
-              paymentIntentId,
-              tempOrderId,
-              items: checkoutResultItems,
-              totalAmount,
-              currency: checkoutCurrency,
-            };
-
-            clearCheckoutCartState();
-
-            navigate(
-              `/checkout/confirmation?payment_intent=${encodeURIComponent(paymentIntentId)}&temp_order_id=${encodeURIComponent(tempOrderId)}`,
-              { state: { checkoutResult: successResult } },
-            );
+            navigate(`/checkout/confirmation?payment_intent=${encodeURIComponent(paymentIntentId)}`, { replace: true });
             setIsLoading(false);
             return;
           }
 
-          removeTempPendingOrder(paymentIntentId);
-
-          // Record payment
-          const { error: paymentRecordErr } = await supabase
-            .from('payment_intents')
-            .upsert(
-              {
-                order_id: order.id,
-                stripe_payment_intent_id: paymentIntentId,
-                status: paymentIntent.status,
-                amount: totalAmount,
-                currency: checkoutCurrency.toLowerCase(),
-              },
-              { onConflict: 'stripe_payment_intent_id' },
-            );
-          if (paymentRecordErr) {
-            console.error('Payment record insert failed:', paymentRecordErr);
-          }
-
-          // Confirm payment server-side (sets payment_status='paid' securely)
-          if (paymentIntent.status === 'succeeded') {
-            const { error: confirmPayErr } = await supabase.rpc('confirm_order_payment', {
-              p_order_id: order.id,
-              p_payment_intent_id: paymentIntentId,
-            });
-            if (confirmPayErr) {
-              console.error('Payment confirmation failed (order still created):', confirmPayErr);
-              // Non-fatal: admin can confirm manually. Order exists.
-            }
-          }
-
-          setSuccess(true);
-
-          // Fire order_placed notification (non-blocking)
-          const sellerIds = [...new Set(items.map(i => i.sellerId).filter((id): id is string => !!id))];
-          const productSubtotal = buyerProductSubtotalAmount ?? items.reduce((s, i) => s + i.price * i.quantity, 0);
-          const platformCharge9 = productSubtotal * PLATFORM_FEE_RATE;
-          const shippingExtra = platformShippingMargin ?? 0;
-          const platformProfit = platformCharge9 + shippingExtra;
-          const deliveryDateStr = expectedDeliveryDateIso
-            ? new Date(expectedDeliveryDateIso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-            : maxDeliveryDays ? `~${maxDeliveryDays} days` : undefined;
-          const invoiceAttachment = await buildOrderInvoiceAttachment({
-            orderId: order.id,
-            orderDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-            paymentMethod: 'Card',
-            buyerName: customerName,
-            buyerAddress: [shippingAddress.street, shippingAddress.city, shippingAddress.state, shippingAddress.postalCode, shippingAddress.country].filter(Boolean).join(', '),
-            buyerPhone: customerPhone || undefined,
-            items: items.map(i => ({ name: i.productName, qty: i.quantity, unitPrice: i.price })),
-            currency: checkoutCurrency.toUpperCase(),
-            totalPaid: totalAmount,
-            shippingCharge: shippingAmount ?? 0,
-            formatPrice,
-          });
-          notifyOrderEvent({
-            type: 'order_placed',
-            orderId: order.id,
-            orderNumber: order.id,
-            buyerId: customerId,
-            buyerEmail: customerEmail,
-            buyerName: customerName,
-            sellerIds,
-            adminNotify: true,
-            title: 'Order Placed Successfully',
-            message: `Your order has been placed and is being processed.`,
-            emailAttachment: invoiceAttachment,
-            emailData: {
-              order_id: order.id.slice(0, 8).toUpperCase(),
-              order_date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-              customer_name: customerName,
-              currency: checkoutCurrency.toUpperCase(),
-              order_total: totalAmount.toFixed(2),
-              payment_method: 'Card',
-              carrier: shippingCarrier || undefined,
-              service_level: shippingServiceLevel || undefined,
-              delivery_date: deliveryDateStr,
-              items: items.map(i => ({
-                name: i.productName,
-                quantity: i.quantity,
-                price: `${checkoutCurrency.toUpperCase()} ${(i.price * i.quantity).toFixed(2)}`,
-                variant: [i.selectedSize, i.selectedColor].filter(Boolean).join(' / ') || undefined,
-              })),
-              // Admin-only fields
-              buyer_address: [shippingAddress.street, shippingAddress.city, shippingAddress.state, shippingAddress.postalCode, shippingAddress.country].filter(Boolean).join(', '),
-              buyer_email: customerEmail,
-              buyer_phone: customerPhone || undefined,
-              product_subtotal: productSubtotal.toFixed(2),
-              platform_charge: platformCharge9.toFixed(2),
-              shipping_charge_actual: (actualShippingCost ?? 0).toFixed(2),
-              shipping_charge_extra: shippingExtra.toFixed(2),
-              shipping_charge_total: (shippingAmount ?? 0).toFixed(2),
-              carrier_actual_name: effectiveShippingProvider || shippingCarrier || undefined,
-              platform_profit: platformProfit.toFixed(2),
-            },
-          }).catch(() => {});
-
-          const orderData: OrderData = {
-            id: order.id,
-            customerId,
-            customerEmail,
-            totalAmount,
-            orderStatus: computedOrderStatus,
-            paymentStatus: computedPaymentStatus,
-            paymentIntentId,
-            items,
-            shippingAddress,
-            billingAddress: billing,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            notes,
-          };
-
-          const successResult: CheckoutResultState = {
-            paymentResult: 'success',
-            paymentIntentId,
-            orderId: String(order.id),
-            items: checkoutResultItems,
-            totalAmount,
-            currency: checkoutCurrency,
-          };
-
-          clearCheckoutCartState();
-
-          navigate('/checkout/confirmation', { state: { orderData, checkoutResult: successResult } });
-          onSuccess?.(orderData);
+          navigate(`/checkout/confirmation?payment_intent=${encodeURIComponent(paymentIntentId)}`, { replace: true });
         } else {
-          const failedResult: CheckoutResultState = {
-            paymentResult: 'failed',
-            paymentIntentId,
-            items: checkoutResultItems,
-            totalAmount,
-            currency: checkoutCurrency,
-            failureReason: `Unexpected payment status: ${paymentIntent?.status}`,
-          };
-          navigate('/checkout/confirmation', { state: { checkoutResult: failedResult } });
+          setError('We could not confirm the payment status. Please wait while we check it before trying again.');
         }
       } catch (err) {
         console.error('Checkout submit error:', err);
 
-        const recoveredOrder = await waitForRecoveredOrder(paymentIntentId, 12_000, 1_500);
+        const recoveredOrder = await waitForRecoveredOrder(paymentIntentId, customerId, 12_000, 1_500);
         if (recoveredOrder?.id) {
-          clearCheckoutCartState();
-          const successResult: CheckoutResultState = {
-            paymentResult: 'success',
-            paymentIntentId,
-            orderId: String(recoveredOrder.id),
-            items: items.map((item) => ({
-              productId: item.productId,
-              productName: item.productName,
-              quantity: item.quantity,
-              price: item.price,
-              productImage: item.productImage,
-              selectedSize: item.selectedSize,
-              selectedColor: item.selectedColor,
-            })),
-            totalAmount,
-            currency: checkoutCurrency,
-          };
-          navigate('/checkout/confirmation', { state: { checkoutResult: successResult } });
+          navigate(`/checkout/confirmation?payment_intent=${encodeURIComponent(paymentIntentId)}`, { replace: true });
           return;
         }
 
-        const failedResult: CheckoutResultState = {
-          paymentResult: 'failed',
-          paymentIntentId,
-          items: items.map((item) => ({
-            productId: item.productId,
-            productName: item.productName,
-            quantity: item.quantity,
-            price: item.price,
-            productImage: item.productImage,
-            selectedSize: item.selectedSize,
-            selectedColor: item.selectedColor,
-          })),
-          totalAmount,
-          currency: checkoutCurrency,
-          failureReason: 'Payment could not be completed right now. Please try again.',
-        };
-        navigate('/checkout/confirmation', { state: { checkoutResult: failedResult } });
+        if (paymentConfirmationStarted) {
+          navigate(`/checkout/confirmation?payment_intent=${encodeURIComponent(paymentIntentId)}`, { replace: true });
+        } else {
+          setError('We could not confirm the payment status. Please wait while we check it before trying again.');
+        }
       } finally {
         setIsLoading(false);
       }
@@ -1201,7 +879,6 @@ const CheckoutForm: React.FC<
       shippingAmount,
       actualShippingCost,
       platformShippingMargin,
-      clearCheckoutCartState,
     ]
   );
 
@@ -2044,6 +1721,12 @@ const Checkout: React.FC = () => {
       if (destination.protocol !== 'https:' || destination.hostname !== 'checkout.stripe.com') {
         throw new Error('The payment page address could not be verified.');
       }
+      try {
+        localStorage.setItem('beauzead_uk_pending_checkout_session', data.sessionId);
+        localStorage.setItem('beauzead_uk_pending_checkout_snapshot', ukQuote.snapshotId);
+      } catch (storageError) {
+        console.warn('[Checkout] Could not persist pending UK checkout context:', storageError);
+      }
       window.location.assign(destination.href);
     } catch (error) {
       console.error('[Checkout] UK hosted checkout failed:', error);
@@ -2177,7 +1860,7 @@ const Checkout: React.FC = () => {
           return;
         }
 
-        const recoveredOrder = await waitForRecoveredOrder(pendingOrderId, 18_000, 1_500);
+        const recoveredOrder = await waitForRecoveredOrder(pendingOrderId, checkoutData.customerId, 18_000, 1_500);
         if (!recoveredOrder?.id) {
           setInitError('Payment succeeded but order confirmation is still processing. Please refresh in a few moments.');
           setLoading(false);
@@ -2185,7 +1868,7 @@ const Checkout: React.FC = () => {
         }
 
         localStorage.removeItem(REVOLUT_PENDING_ORDER_ID_KEY);
-        const checkoutResultItems: CheckoutResultItem[] = checkoutData.items.map((item) => ({
+        const checkoutResultItems = checkoutData.items.map((item) => ({
           productId: item.productId,
           productName: item.productName,
           quantity: item.quantity,

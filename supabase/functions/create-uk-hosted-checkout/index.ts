@@ -111,7 +111,7 @@ Deno.serve(async (req: Request) => {
       }],
       metadata: { uk_checkout_snapshot_id: snapshotId },
       success_url: `${returnOrigin}/checkout/uk-payment-return?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${returnOrigin}/checkout/uk-payment-return?action=cancel`,
+      cancel_url: `${returnOrigin}/checkout/uk-payment-return?action=cancel&checkout_id=${encodeURIComponent(snapshot.id)}`,
     }, { idempotencyKey: `uk-checkout-${snapshotId}` });
     if (session.status !== "open" || !session.url || session.livemode !== livemode ||
         session.amount_total !== snapshot.amount_minor || session.currency !== snapshot.currency ||

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { CheckCircle2, Package, MapPin, CreditCard, Phone, Mail, Truck, XCircle } from 'lucide-react';
+import { CheckCircle2, Package, MapPin, CreditCard, Phone, Mail, Truck, XCircle, Clock3 } from 'lucide-react';
 import { useCart } from '../../contexts/CartContext';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -18,6 +18,7 @@ interface OrderData {
   totalAmount: number;
   orderStatus: 'pending' | 'new' | 'accepted' | 'processing' | 'packed' | 'shipped' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'cancelled' | 'return_requested' | 'returned' | 'refunded';
   paymentStatus: string;
+  paymentMethod?: string;
   paymentIntentId: string;
   items: Array<{
     productId: string;
@@ -69,32 +70,14 @@ interface ConfirmationLocationState {
   checkoutResult?: CheckoutResultState;
 }
 
-const TEMP_PENDING_ORDERS_KEY = 'beauzead_temp_pending_orders';
-
-const getTempOrderIdFromStorage = (paymentIntentId: string): string => {
-  if (!paymentIntentId || typeof window === 'undefined') return '';
-  try {
-    const raw = localStorage.getItem(TEMP_PENDING_ORDERS_KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(list)) return '';
-    const match = list.find((entry: any) => String(entry?.paymentIntentId || '') === paymentIntentId);
-    return String(match?.tempOrderId || '').trim();
-  } catch {
-    return '';
-  }
-};
-
-const removeTempPendingOrder = (paymentIntentId: string) => {
-  if (!paymentIntentId || typeof window === 'undefined') return;
-  try {
-    const raw = localStorage.getItem(TEMP_PENDING_ORDERS_KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(list)) return;
-    const next = list.filter((entry: any) => String(entry?.paymentIntentId || '') !== paymentIntentId);
-    localStorage.setItem(TEMP_PENDING_ORDERS_KEY, JSON.stringify(next));
-  } catch {
-    // non-blocking cleanup
-  }
+const PAID_PAYMENT_STATUSES = new Set(['paid', 'completed', 'succeeded']);
+const isPaidPaymentStatus = (status: string) => PAID_PAYMENT_STATUSES.has(status.trim().toLowerCase());
+const isCodPayment = (paymentStatus: string, paymentMethod?: string) => {
+  const method = paymentMethod?.trim().toLowerCase() || '';
+  return paymentStatus.trim().toLowerCase() === 'cod'
+    || method === 'cod'
+    || method.includes('cash_on_delivery')
+    || method.includes('cash on delivery');
 };
 
 const OrderConfirmationPage: React.FC = () => {
@@ -104,9 +87,7 @@ const OrderConfirmationPage: React.FC = () => {
   const { clearCart, removeFromCart } = useCart();
   const { currency, convertPrice } = useCurrency();
   const { user, currentAuthUser, loading: authLoading } = useAuth();
-  const [resolvedOrderData, setResolvedOrderData] = useState<OrderData | undefined>(
-    locationState.orderData,
-  );
+  const [resolvedOrderData, setResolvedOrderData] = useState<OrderData | undefined>();
   const [resolvingOrder, setResolvingOrder] = useState(false);
   const checkoutResult = locationState.checkoutResult;
 
@@ -122,45 +103,33 @@ const OrderConfirmationPage: React.FC = () => {
     ).trim();
   }, [location.search]);
 
-  const tempOrderIdFromUrl = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    return (params.get('temp_order_id') || '').trim();
-  }, [location.search]);
-
-  const tempOrderId = useMemo(() => {
-    if (tempOrderIdFromUrl) return tempOrderIdFromUrl;
-    return getTempOrderIdFromStorage(paymentIntentFromUrl);
-  }, [tempOrderIdFromUrl, paymentIntentFromUrl]);
+  const requestedOrderId = locationState.orderData?.id || checkoutResult?.orderId || '';
+  const requestedPaymentIntentId = paymentIntentFromUrl
+    || checkoutResult?.paymentIntentId
+    || locationState.orderData?.paymentIntentId
+    || '';
 
   useEffect(() => {
-    if (checkoutResult || resolvedOrderData || authLoading) return;
-
-    if (!paymentIntentFromUrl) {
-      return;
-    }
-
+    if (authLoading) return;
     let cancelled = false;
 
-    const resolveOrderFromPaymentIntent = async () => {
+    const resolveOrder = async () => {
+      setResolvedOrderData(undefined);
       setResolvingOrder(true);
 
       try {
-        // Order recovery may complete after checkout returns from external auth,
-        // so poll briefly before surfacing a delayed-confirmation message.
+        if (!userId || (!requestedOrderId && !requestedPaymentIntentId)) return;
         for (let attempt = 0; attempt < 10; attempt += 1) {
-          let query = supabase
-            .from('orders')
-            .select('id, user_id, total_amount, status, payment_status, payment_intent_id, shipping_address, billing_address, created_at, updated_at, order_items(*)')
-            .eq('payment_intent_id', paymentIntentFromUrl)
-            .limit(1);
-
-          if (userId) {
-            query = query.eq('user_id', userId);
-          }
-
+          if (cancelled) return;
+          let query = supabase.from('orders')
+            .select('id, user_id, total_amount, status, payment_status, payment_method, payment_intent_id, shipping_address, billing_address, created_at, updated_at, order_items(*)')
+            .eq('user_id', userId);
+          if (requestedOrderId) query = query.eq('id', requestedOrderId);
+          if (requestedPaymentIntentId) query = query.eq('payment_intent_id', requestedPaymentIntentId);
+          query = query.limit(1);
           const { data, error } = await query.maybeSingle();
           if (error) {
-            return;
+            throw error;
           }
 
           if (data) {
@@ -178,7 +147,8 @@ const OrderConfirmationPage: React.FC = () => {
               totalAmount: Number(data.total_amount || 0),
               orderStatus: (data.status || 'pending') as OrderData['orderStatus'],
               paymentStatus: String(data.payment_status || 'pending'),
-              paymentIntentId: String(data.payment_intent_id || paymentIntentFromUrl),
+              paymentMethod: String(data.payment_method || ''),
+              paymentIntentId: String(data.payment_intent_id || ''),
               items: ((data.order_items || []) as any[]).map((item) => ({
                 productId: String(item.product_id || ''),
                 productName: String(item.product_name || 'Product'),
@@ -208,12 +178,19 @@ const OrderConfirmationPage: React.FC = () => {
             if (!cancelled) {
               setResolvedOrderData(mapped);
             }
-            return;
+            if (
+              isPaidPaymentStatus(mapped.paymentStatus)
+              || isCodPayment(mapped.paymentStatus, mapped.paymentMethod)
+              || mapped.paymentStatus.trim().toLowerCase() === 'failed'
+            ) return;
+            if (!cancelled) setResolvingOrder(false);
           }
 
+          if (attempt === 9) break;
           await new Promise((resolve) => setTimeout(resolve, 1500));
         }
-
+      } catch (error) {
+        console.error('[OrderConfirmation] Could not verify the order status:', error);
       } finally {
         if (!cancelled) {
           setResolvingOrder(false);
@@ -221,19 +198,22 @@ const OrderConfirmationPage: React.FC = () => {
       }
     };
 
-    resolveOrderFromPaymentIntent();
+    void resolveOrder();
 
     return () => {
       cancelled = true;
     };
-  }, [checkoutResult, resolvedOrderData, authLoading, paymentIntentFromUrl, userId, user?.email]);
+  }, [authLoading, requestedOrderId, requestedPaymentIntentId, userId, user?.email]);
 
   const orderData = resolvedOrderData;
+  const isPaid = orderData ? isPaidPaymentStatus(orderData.paymentStatus) : false;
+  const isCod = orderData ? isCodPayment(orderData.paymentStatus, orderData.paymentMethod) : false;
+  const isPaymentFailed = orderData?.paymentStatus.trim().toLowerCase() === 'failed';
 
   useEffect(() => {
     if (!orderData) return;
 
-    removeTempPendingOrder(orderData.paymentIntentId || paymentIntentFromUrl);
+    if (!isPaid && !isCod) return;
 
     // Clear only purchased cart items when available; fallback to full clear.
     const purchasedCartItemIds = (orderData.items || [])
@@ -249,113 +229,16 @@ const OrderConfirmationPage: React.FC = () => {
     // Clear checkout data from localStorage
     localStorage.removeItem('beauzead_checkout_shipping');
     localStorage.removeItem('beauzead_checkout_selected_cart_ids');
-  }, [orderData, clearCart, removeFromCart]);
+  }, [orderData, clearCart, removeFromCart, isPaid, isCod]);
 
-  useEffect(() => {
-    if (!checkoutResult || checkoutResult.paymentResult !== 'success') return;
-    clearCart();
-    localStorage.removeItem('beauzead_checkout_shipping');
-    localStorage.removeItem('beauzead_checkout_selected_cart_ids');
-  }, [checkoutResult, clearCart]);
-
-  if (!checkoutResult && (authLoading || resolvingOrder)) {
+  if (authLoading || resolvingOrder) {
     return (
       <div className="min-h-screen bg-[#eaeded] flex flex-col">
         <Header />
         <div className="flex-1 flex items-center justify-center px-4">
           <div className="max-w-[560px] w-full bg-white border border-[#ddd] rounded-lg p-8 text-center">
-            <h1 className="text-2xl font-bold text-[#0f1111] mb-3">Finalizing Your Order</h1>
-            <p className="text-[#555]">Your payment is confirmed. We are fetching your order details now.</p>
-          </div>
-        </div>
-        <Footer />
-        <MobileNav />
-      </div>
-    );
-  }
-
-  if (checkoutResult) {
-    const isSuccess = checkoutResult.paymentResult === 'success';
-    const displayOrderId = checkoutResult.orderId || checkoutResult.tempOrderId || tempOrderId;
-
-    return (
-      <div className="min-h-screen bg-[#f3f4f6] flex flex-col">
-        <Header />
-        <div className="flex-1 py-4 pb-20">
-          <div className="max-w-[560px] mx-auto px-3">
-
-            {/* Status banner */}
-            <div className={`flex items-center gap-2.5 rounded-lg px-4 py-3 mb-3 ${isSuccess ? 'bg-[#f0faf0] border border-[#c6f0d8]' : 'bg-[#fff1f0] border border-[#ffd0cc]'}`}>
-              {isSuccess
-                ? <CheckCircle2 size={20} className="text-[#067d62] shrink-0" />
-                : <XCircle size={20} className="text-[#b12704] shrink-0" />}
-              <div className="min-w-0">
-                <p className={`text-[13px] font-bold leading-tight ${isSuccess ? 'text-[#067d62]' : 'text-[#b12704]'}`}>
-                  {isSuccess ? 'Payment Successful' : 'Payment Failed'}
-                </p>
-                {!isSuccess && checkoutResult.failureReason && (
-                  <p className="text-[11px] text-[#b12704] mt-0.5 leading-snug">{checkoutResult.failureReason}</p>
-                )}
-              </div>
-            </div>
-
-            {/* Reference */}
-            {(displayOrderId || checkoutResult.paymentIntentId) && (
-              <div className="bg-white border border-[#e5e7eb] rounded-lg px-3 py-2.5 mb-3 space-y-0.5">
-                {displayOrderId && (
-                  <p className="text-[11px] text-gray-500">{isSuccess ? 'Order ID' : 'Reference'}: <span className="font-semibold text-gray-800">{displayOrderId}</span></p>
-                )}
-                {checkoutResult.paymentIntentId && (
-                  <p className="text-[10px] text-gray-400 font-mono truncate">PI: {checkoutResult.paymentIntentId}</p>
-                )}
-              </div>
-            )}
-
-            {/* Items */}
-            <div className="bg-white border border-[#e5e7eb] rounded-lg p-3 mb-3">
-              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Items</p>
-              <div className="divide-y divide-gray-100">
-                {(checkoutResult.items || []).map((item, index) => (
-                  <div key={`${item.productId}-${index}`} className="flex gap-2.5 py-2 first:pt-0 last:pb-0">
-                    <div className="w-[52px] h-[52px] rounded border border-gray-100 bg-gray-50 overflow-hidden shrink-0">
-                      {item.productImage
-                        ? <img src={item.productImage} alt={item.productName} className="w-full h-full object-cover" />
-                        : <div className="w-full h-full flex items-center justify-center text-[9px] text-gray-400">No img</div>}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[12px] font-semibold text-[#0f1111] line-clamp-2 leading-snug">{item.productName}</p>
-                      <div className="flex flex-wrap gap-1 mt-0.5">
-                        {item.selectedSize && <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-px rounded">Size: {item.selectedSize}</span>}
-                        {item.selectedColor && <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-px rounded">Color: {item.selectedColor}</span>}
-                      </div>
-                      <p className="text-[10px] text-gray-500 mt-0.5">Qty: {item.quantity} · {fmtCurrency(item.price, checkoutResult.currency)} each</p>
-                    </div>
-                    <p className="text-[13px] font-bold text-[#b12704] shrink-0 self-center">{fmtCurrency(item.price * item.quantity, checkoutResult.currency)}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="border-t border-[#e5e7eb] mt-2 pt-2 flex justify-between items-center">
-                <span className="text-[12px] font-semibold text-gray-700">Total</span>
-                <span className="text-[14px] font-bold text-[#0f1111]">{fmtCurrency(checkoutResult.totalAmount, checkoutResult.currency)}</span>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => navigate('/orders')}
-                className="py-2.5 bg-[#ffd814] hover:bg-[#f7ca00] border border-[#fcd200] text-[#0f1111] rounded-lg font-bold text-[12px] transition-colors"
-              >
-                MY ORDERS
-              </button>
-              <button
-                onClick={() => navigate('/cart')}
-                className="py-2.5 bg-white border border-[#ddd] hover:bg-gray-50 text-[#0f1111] rounded-lg font-bold text-[12px] transition-colors"
-              >
-                BACK TO CART
-              </button>
-            </div>
-
+            <h1 className="text-2xl font-bold text-[#0f1111] mb-3">Verifying Your Payment</h1>
+            <p className="text-[#555]">Please wait while we securely confirm your payment and order.</p>
           </div>
         </div>
         <Footer />
@@ -370,14 +253,11 @@ const OrderConfirmationPage: React.FC = () => {
         <Header />
         <div className="flex-1 flex items-center justify-center px-4">
           <div className="max-w-[560px] w-full bg-white border border-[#ddd] rounded-lg p-8 text-center">
-            <h1 className="text-2xl font-bold text-[#0f1111] mb-3">Payment Received &amp; Your order is creating</h1>
-            <p className="text-[#555] mb-1">Your payment is successful. We are creating your order now.</p>
-            <p className="text-[#555] mb-3">Please keep this page open for a moment.</p>
-            {tempOrderId && (
-              <p className="text-sm text-[#0f1111] font-semibold mb-1">Your Order ID: {tempOrderId}</p>
-            )}
-            {paymentIntentFromUrl && (
-              <p className="text-xs text-gray-500 mb-4">Payment reference: {paymentIntentFromUrl}</p>
+            <h1 className="text-2xl font-bold text-[#0f1111] mb-3">We’re confirming your payment</h1>
+            <p className="text-[#555] mb-1">We don’t have a confirmed order status yet. Your payment may still be processing.</p>
+            <p className="text-[#555] mb-3">Please don’t try to pay again while we check the status.</p>
+            {requestedPaymentIntentId && (
+              <p className="text-xs text-gray-500 mb-4">Payment reference: {requestedPaymentIntentId}</p>
             )}
             <div className="text-left bg-gray-50 border border-gray-200 rounded-md p-3 mb-5">
               <p className="text-xs font-semibold text-gray-700 mb-2">Contact Support</p>
@@ -450,6 +330,21 @@ const OrderConfirmationPage: React.FC = () => {
     }
   };
 
+  const confirmationTitle = isPaid
+    ? 'Order Confirmed!'
+    : isPaymentFailed
+      ? 'Payment Unsuccessful'
+      : isCod
+        ? 'Order Placed!'
+        : 'Payment Processing';
+  const confirmationDescription = isPaid
+    ? 'Thank you for your purchase. Your payment has been confirmed and your order is being processed.'
+    : isPaymentFailed
+      ? 'The payment provider confirmed that this payment did not complete. You can return to checkout when ready.'
+      : isCod
+        ? 'Your order has been placed. Payment is due when your order is delivered.'
+        : 'Your payment is being verified. Please do not try to pay again while we confirm its status.';
+
   return (
     <div className="min-h-screen bg-[#eaeded] flex flex-col">
       <Header />
@@ -460,24 +355,34 @@ const OrderConfirmationPage: React.FC = () => {
           <span className="text-gray-400">Cart</span>
           <span className="text-gray-400">Shipping</span>
           <span className="text-gray-400">Review & Pay</span>
-          <span className="text-[#067d62] font-bold border-b-2 border-[#067d62] pb-1">✓ Confirmed</span>
+          <span className={`font-bold border-b-2 pb-1 ${
+            isPaymentFailed ? 'text-red-700 border-red-700' : isPaid || isCod ? 'text-[#067d62] border-[#067d62]' : 'text-blue-700 border-blue-700'
+          }`}>
+            {isPaymentFailed ? 'Payment not completed' : isPaid || isCod ? '✓ Confirmed' : 'Payment processing'}
+          </span>
         </div>
-        {/* Success Header */}
+        {/* Payment and order status */}
         <div className="bg-white border border-[#ddd] rounded-lg p-8 text-center mb-5">
-          <div className="w-20 h-20 bg-[#f0faf0] rounded-full flex items-center justify-center mx-auto mb-5">
-            <CheckCircle2 size={40} className="text-[#067d62]" />
+          <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5 ${
+            isPaid || isCod ? 'bg-[#f0faf0]' : isPaymentFailed ? 'bg-red-50' : 'bg-blue-50'
+          }`}>
+            {isPaid || isCod
+              ? <CheckCircle2 size={40} className="text-[#067d62]" />
+              : isPaymentFailed
+                ? <XCircle size={40} className="text-red-600" />
+                : <Clock3 size={40} className="text-blue-600" />}
           </div>
-          <h1 className="text-2xl font-bold text-[#0f1111] mb-2">Order Confirmed!</h1>
+          <h1 className="text-2xl font-bold text-[#0f1111] mb-2">{confirmationTitle}</h1>
           <p className="text-base text-[#555] mb-5">
-            Thank you for your purchase. Your order has been successfully placed.
+            {confirmationDescription}
           </p>
           <div className="inline-block bg-[#fffbf0] border-2 border-[#ff9900] rounded-lg px-6 py-3">
             <p className="text-xs text-[#555] font-medium uppercase tracking-wide">Order Number</p>
             <p className="text-xl font-bold text-[#0f1111] mt-0.5">{formatFrontend12DigitId(orderData.id)}</p>
           </div>
-          <p className="text-sm text-[#555] mt-4">
+          {(isPaid || isCod) && <p className="text-sm text-[#555] mt-4">
             Confirmation email sent to <span className="font-semibold text-gray-700">{orderData.customerEmail}</span>
-          </p>
+          </p>}
         </div>
 
         {/* Order Status */}
@@ -582,7 +487,9 @@ const OrderConfirmationPage: React.FC = () => {
             <div className="bg-gray-50 border border-gray-100 rounded-md p-4">
               <div className="flex justify-between items-center mb-2">
                 <p className="text-sm text-gray-600">Payment Status</p>
-                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                  isPaid ? 'bg-green-100 text-green-700' : isPaymentFailed ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                }`}>
                   {orderData.paymentStatus}
                 </span>
               </div>
@@ -600,7 +507,7 @@ const OrderConfirmationPage: React.FC = () => {
           {/* Order Total */}
           <div className="border-t-2 border-[#ddd] pt-4">
             <div className="flex justify-between items-center text-[18px] font-bold">
-              <span>Total Paid</span>
+              <span>{isPaid ? 'Total Paid' : 'Order Total'}</span>
               <span className="text-[#b12704]">{fmtCurrency(convertPrice(orderData.totalAmount), currency)}</span>
             </div>
           </div>
@@ -608,6 +515,14 @@ const OrderConfirmationPage: React.FC = () => {
 
         {/* Action Buttons */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {isPaymentFailed && (
+            <button
+              onClick={() => navigate('/checkout/review')}
+              className="px-6 py-3 bg-[#ffd814] hover:bg-[#f7ca00] border border-[#fcd200] text-[#0f1111] rounded-lg font-bold text-sm transition-colors"
+            >
+              Return to Checkout
+            </button>
+          )}
           <button
             onClick={() => navigate('/orders')}
             className="px-6 py-3 bg-[#ffd814] hover:bg-[#f7ca00] border border-[#fcd200] text-[#0f1111] rounded-lg font-bold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer"

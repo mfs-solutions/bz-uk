@@ -11,3 +11,9 @@ export function calculateUkHostedCheckoutTotal(
 
   return roundToMinorUnit(sharedRpcTotal - offerDiscount);
 }
+
+export function ukCheckoutAmountsMatch(displayedAmount: number, quotedAmount: number): boolean {
+  if (!Number.isFinite(displayedAmount) || !Number.isFinite(quotedAmount)) return false;
+  return Math.round((displayedAmount + Number.EPSILON) * 100)
+    === Math.round((quotedAmount + Number.EPSILON) * 100);
+}

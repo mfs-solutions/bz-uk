@@ -245,6 +245,8 @@ const RouteGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
     const userAuthPages = ['/login', '/signup'];
     const isUserAuthPage = userAuthPages.includes(path);
+    const isPaymentReturnPage = path === '/checkout/uk-payment-return'
+      || path === '/checkout/confirmation';
     const isSellerPortalRedirect = path === '/seller' || path.startsWith('/seller/');
     const userProtectedPrefixes = [
       '/orders', '/profile', '/wishlist', '/cart', '/checkout',
@@ -274,7 +276,7 @@ const RouteGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       return;
     }
 
-    if (isPublicPage || isUserAuthPage || isSellerPortalRedirect) return;
+    if (isPublicPage || isUserAuthPage || isPaymentReturnPage || isSellerPortalRedirect) return;
 
     if (isUserProtectedPage) {
       navigate('/login', { replace: true, state: { from: path } });
