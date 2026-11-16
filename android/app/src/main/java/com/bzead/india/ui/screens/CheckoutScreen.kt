@@ -68,10 +68,20 @@ private val CoBorder = Color(0xFFDDDDDD)
 fun CheckoutScreen(
     onNavigateBack: () -> Unit,
     onOrderPlaced: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onNavigateToCart: () -> Unit = onNavigateBack,
+    onNavigateToOrders: () -> Unit = onNavigateBack,
+    onContactSupport: () -> Unit = onNavigateBack
 ) {
     if (com.bzead.india.data.StorefrontMarket.isUk) {
-        UkStripeCheckoutScreen(onNavigateBack, onOrderPlaced, modifier)
+        UkStripeCheckoutScreen(
+            onBack = onNavigateBack,
+            onOrderPlaced = onOrderPlaced,
+            onNavigateToCart = onNavigateToCart,
+            onNavigateToOrders = onNavigateToOrders,
+            onContactSupport = onContactSupport,
+            modifier = modifier
+        )
         return
     }
     val selectedAddress by BzeadRepository.selectedAddress.collectAsState()

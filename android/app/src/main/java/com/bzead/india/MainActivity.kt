@@ -587,7 +587,10 @@ class MainActivity : ComponentActivity(), com.razorpay.PaymentResultWithDataList
                                 is AppScreen.Checkout -> {
                                     CheckoutScreen(
                                         onNavigateBack = { navigateBack() },
-                                        onOrderPlaced = { orderId -> navigateTo(AppScreen.OrderSuccess(orderId)) }
+                                        onOrderPlaced = { orderId -> navigateTo(AppScreen.OrderSuccess(orderId)) },
+                                        onNavigateToCart = { navigateTo(AppScreen.Cart) },
+                                        onNavigateToOrders = { navigateTo(AppScreen.Orders) },
+                                        onContactSupport = { navigateTo(AppScreen.Contact) }
                                     )
                                 }
                                 is AppScreen.OrderSuccess -> {

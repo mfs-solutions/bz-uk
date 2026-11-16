@@ -2,7 +2,6 @@ package com.bzead.india.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,17 +13,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.MailOutline
-import androidx.compose.material.icons.filled.ShoppingBag
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
@@ -32,10 +26,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -57,6 +49,7 @@ import com.bzead.india.theme.BzeadHeaderNavy
 import com.bzead.india.theme.BzeadPrimary
 import com.bzead.india.theme.TextPrimary
 import com.bzead.india.theme.TextSecondary
+import com.bzead.india.ui.components.formatPrice
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,7 +65,6 @@ fun OrderSuccessScreen(
     val order = orders.firstOrNull { it.id == orderId } ?: BzeadRepository.findOrder(orderId)
     val isPending = order == null || BzeadRepository.isTemporaryOrder(order.id) ||
         order.paymentStatus.lowercase() in setOf("pending", "processing", "created", "initiated")
-    val email by BzeadRepository.userEmail.collectAsState()
 
     Column(modifier = modifier.fillMaxSize().background(Color(0xFFEAEDed))) {
         TopAppBar(
@@ -89,22 +81,19 @@ fun OrderSuccessScreen(
 
         Surface(modifier = Modifier.weight(1f).fillMaxWidth(), color = Color(0xFFEAEDed)) {
         if (order == null || isPending) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Payment Received & Your order is creating", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F1111), textAlign = TextAlign.Center)
-                Spacer(Modifier.height(12.dp))
-                Text("Your payment is successful. We are creating your order now.", color = TextSecondary, textAlign = TextAlign.Center)
-                Text("Please keep this page open for a moment.", modifier = Modifier.padding(top = 4.dp), color = TextSecondary, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(24.dp))
-                ContactSupport(onContactSupport)
-                Spacer(Modifier.height(18.dp))
-                Button(onClick = onViewOrders, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFD814))) {
-                    Text("Go To My Orders", color = Color(0xFF0F1111), fontWeight = FontWeight.Bold)
+                item {
+                    PaymentResultCard(
+                        status = PaymentResultStatus.ORDER_CONFIRMING,
+                        orderReference = order?.orderNumber,
+                        primaryAction = PaymentResultAction("View my orders", onViewOrders),
+                        onContactSupport = onContactSupport
+                    )
                 }
-                OutlinedButton(onClick = onContactSupport, modifier = Modifier.fillMaxWidth()) { Text("Contact Support") }
             }
         } else {
             LazyColumn(
@@ -114,33 +103,14 @@ fun OrderSuccessScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Cart", color = TextSecondary, fontSize = 12.sp)
-                        Text("›", color = TextSecondary)
-                        Text("Shipping", color = TextSecondary, fontSize = 12.sp)
-                        Text("›", color = TextSecondary)
-                        Text("Review & Pay", color = TextSecondary, fontSize = 12.sp)
-                        Text("›", color = TextSecondary)
-                        Text("✓ Confirmed", color = Color(0xFF067D62), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    }
-                }
-                item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box(Modifier.size(80.dp).clip(CircleShape).background(Color(0xFFF0FAF0)), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF067D62), modifier = Modifier.size(44.dp))
-                            }
-                            Spacer(Modifier.height(14.dp))
-                            Text("Order Confirmed!", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F1111), textAlign = TextAlign.Center)
-                            Text("Thank you for your purchase. Your order has been successfully placed.", modifier = Modifier.padding(top = 6.dp), color = TextSecondary, textAlign = TextAlign.Center)
-                            Spacer(Modifier.height(16.dp))
-                            Column(Modifier.background(Color(0xFFFFFBF0), RoundedCornerShape(8.dp)).padding(horizontal = 22.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("ORDER NUMBER", fontSize = 10.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
-                                Text(order.orderNumber.removePrefix("ORD-"), fontSize = 21.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F1111))
-                            }
-                            Text("Confirmation email sent to ${email.orEmpty().ifBlank { "—" }}", modifier = Modifier.padding(top = 14.dp), fontSize = 12.sp, color = TextSecondary, textAlign = TextAlign.Center)
-                        }
-                    }
+                    PaymentResultCard(
+                        status = PaymentResultStatus.SUCCESS,
+                        orderReference = order.orderNumber,
+                        amount = order.totalAmount,
+                        primaryAction = PaymentResultAction("View order") { onViewOrder(order.id) },
+                        secondaryAction = PaymentResultAction("Continue shopping", onContinueShopping),
+                        onContactSupport = onContactSupport
+                    )
                 }
                 item { OrderStatusCard(order) }
                 item {
@@ -157,7 +127,7 @@ fun OrderSuccessScreen(
                                         Text(item.product.title, fontWeight = FontWeight.SemiBold, color = TextPrimary, fontSize = 12.sp)
                                         Text("Quantity: ${item.quantity}", color = TextSecondary, fontSize = 11.sp)
                                     }
-                                    Text("₹${item.totalPrice.toInt()}", fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 12.sp)
+                                    Text(formatPrice(item.totalPrice), fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 12.sp)
                                 }
                             }
                             Divider(Modifier.padding(vertical = 12.dp))
@@ -177,20 +147,10 @@ fun OrderSuccessScreen(
                             SummaryLine("Payment Status", order.paymentStatus.ifBlank { "pending" })
                             SummaryLine("Transaction ID", order.paymentIntentId.takeIf { it.isNotBlank() }?.let { "****${it.takeLast(8)}" } ?: "—")
                             Divider(Modifier.padding(vertical = 12.dp))
-                            SummaryLine("Total Paid", "₹${order.totalAmount.toInt()}", bold = true)
+                            SummaryLine("Total Paid", formatPrice(order.totalAmount), bold = true)
                         }
                     }
                 }
-                item {
-                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = onViewOrders, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFD814))) {
-                            Icon(Icons.Default.ShoppingBag, null, modifier = Modifier.size(18.dp), tint = Color(0xFF0F1111))
-                            Text("View All Orders", modifier = Modifier.padding(start = 7.dp), color = Color(0xFF0F1111), fontWeight = FontWeight.Bold)
-                        }
-                        OutlinedButton(onClick = onContinueShopping, modifier = Modifier.fillMaxWidth()) { Text("Continue Shopping", color = Color(0xFF0F1111)) }
-                    }
-                }
-                item { ContactSupport(onContactSupport) }
             }
         }
         }
@@ -238,19 +198,5 @@ private fun SummaryLine(label: String, value: String, bold: Boolean = false) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, color = TextSecondary, fontSize = 12.sp)
         Text(value, color = TextPrimary, fontSize = 12.sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium)
-    }
-}
-
-@Composable
-private fun ContactSupport(onContactSupport: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text("Need Help?", fontWeight = FontWeight.SemiBold, color = Color(0xFF0F1111))
-            Text("If you have any questions about your order, please contact our support team through the Contact page.", modifier = Modifier.padding(top = 6.dp, bottom = 10.dp), color = TextSecondary, fontSize = 12.sp)
-            TextButton(onClick = onContactSupport, contentPadding = PaddingValues(0.dp)) {
-                Icon(Icons.Default.MailOutline, null, tint = Color(0xFF2563EB), modifier = Modifier.size(15.dp))
-                Text("Contact Support", modifier = Modifier.padding(start = 6.dp), color = Color(0xFF2563EB), fontSize = 12.sp)
-            }
-        }
     }
 }
