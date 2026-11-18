@@ -8,6 +8,7 @@ const hoisted = vi.hoisted(() => ({
   mockRpcCalls: [] as Array<{ functionName: string; args: Record<string, any> }>,
   mockFetchOk: true as boolean,
   mockFetchRate: 120 as number,
+  mockFetchCurrency: 'GBP' as string,
   mockFetchCalls: [] as Array<{ url: string; body: any }>,
 }));
 
@@ -98,7 +99,7 @@ globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
     const shippoResponse = {
       cheapest: {
         rate: hoisted.mockFetchRate,
-        currency: 'GBP',
+        currency: hoisted.mockFetchCurrency,
         estimated_delivery_days: 2,
         courier_name: 'Evri',
         service_level: 'ParcelShop Drop-Off',
@@ -107,7 +108,7 @@ globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
       tiers: {
         standard: {
           rate: hoisted.mockFetchRate,
-          currency: 'GBP',
+          currency: hoisted.mockFetchCurrency,
           estimated_delivery_days: 2,
           courier_name: 'Evri',
           service_level: 'ParcelShop Drop-Off',
@@ -115,7 +116,7 @@ globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
         },
         express: {
           rate: hoisted.mockFetchRate + 2,
-          currency: 'GBP',
+          currency: hoisted.mockFetchCurrency,
           estimated_delivery_days: 1,
           courier_name: 'Evri',
           service_level: 'Express',
@@ -162,9 +163,18 @@ vi.mock('../utils/currency', () => ({
     const inUsd = from === 'USD' ? amount : amount / fromRate;
     return to === 'USD' ? inUsd : inUsd * toRate;
   }),
+  convertAmountStrict: vi.fn((amount: number, fromCurrency: string, toCurrency: string, rates: Record<string, number>) => {
+    const from = String(fromCurrency || '').toUpperCase();
+    const to = String(toCurrency || '').toUpperCase();
+    if (!Number.isFinite(amount) || !from || !to) return null;
+    if (from === to) return amount;
+    if (!(rates[from] > 0) || !(rates[to] > 0)) return null;
+    return amount / rates[from] * rates[to];
+  }),
 }));
 
 import { calculateDestinationCheckoutPricing } from '../lib/checkoutPricingService';
+import { calculateDestinationCheckoutPricing as calculateInternationalHostedPricing } from '../../supabase/functions/_shared/hosted-checkout-pricing';
 import { fetchVerifiedVariantPrices } from '../lib/pricingService';
 
 describe('checkout pricing simulation: legacy + shiprocket', () => {
@@ -172,6 +182,7 @@ describe('checkout pricing simulation: legacy + shiprocket', () => {
     hoisted.mockFetchCalls = [];
     hoisted.mockFetchOk = true;
     hoisted.mockFetchRate = 120;
+    hoisted.mockFetchCurrency = 'GBP';
     hoisted.mockRpcRows = {};
     hoisted.mockRpcCalls = [];
     setTable('product_variants', []);
@@ -248,6 +259,43 @@ describe('checkout pricing simulation: legacy + shiprocket', () => {
 
     // Empty profiles simulates buyer role RLS where seller profile country may not be readable.
     setTable('profiles', []);
+  });
+
+  it('uses the carrier currency for international hosted checkout shipping', async () => {
+    setTable('products', [{
+      id: 'gb-p1',
+      origin_country: 'United Kingdom',
+      origin_country_id: 'c-gbr',
+      seller_id: 'seller-uk',
+      package_weight: 1,
+      package_weight_unit_id: 'u-kg',
+      package_length: 10,
+      package_length_unit_id: 'u-cm',
+      package_width: 10,
+      package_width_unit_id: 'u-cm',
+      package_height: 10,
+      package_height_unit_id: 'u-cm',
+    }]);
+    setTable('seller_kyc', [{ seller_id: 'seller-uk', business_postal_code: 'EC1A1BB' }]);
+    hoisted.mockFetchCurrency = 'USD';
+    hoisted.mockFetchRate = 10;
+
+    const input = {
+      items: [{ productId: 'gb-p1', productName: 'Product', quantity: 1, unitPrice: 100, currency: 'GBP' }],
+      destinationCountry: 'United States',
+      destinationPostalCode: '10001',
+      currency: 'USD' as const,
+      rates: { INR: 80, USD: 1, GBP: 0.8 },
+      strict: true,
+    };
+    const pricing = await calculateInternationalHostedPricing(input);
+
+    expect(pricing.shipping).toBe(10);
+    expect(pricing.intlShippingOptions?.express?.shipping).toBe(12);
+
+    hoisted.mockFetchCurrency = '';
+    const unavailable = await calculateInternationalHostedPricing(input);
+    expect(unavailable.intlShippingError).toBeTruthy();
   });
 
   it('prices multiple selected variants of the same product independently', async () => {

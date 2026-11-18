@@ -36,6 +36,7 @@
                 <data android:host="bzead.uk" />
                 <data android:pathPrefix="/products/" />
                 <data android:pathPrefix="/share/" />
+                <data android:path="/checkout/uk-payment-return" />
             </intent-filter>
         </activity>
 

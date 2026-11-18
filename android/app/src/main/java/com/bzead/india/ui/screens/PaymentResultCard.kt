@@ -48,7 +48,8 @@ internal enum class PaymentResultStatus {
     SUCCESS,
     FAILED,
     CANCELLED,
-    VERIFICATION_ERROR
+    VERIFICATION_ERROR,
+    AUTHENTICATION_REQUIRED
 }
 
 internal enum class PaymentResultRowTone { DONE, ACTIVE, IDLE }
@@ -135,6 +136,15 @@ internal fun paymentResultCopy(status: PaymentResultStatus): PaymentResultCopy =
             PaymentResultRow("Your payment details remain secure", PaymentResultRowTone.IDLE)
         )
     )
+    PaymentResultStatus.AUTHENTICATION_REQUIRED -> PaymentResultCopy(
+        "SECURE CHECKOUT",
+        "Sign in to check your payment",
+        "Sign in to the account used for this checkout to securely check its status.",
+        listOf(
+            PaymentResultRow("Your payment is not affected", PaymentResultRowTone.IDLE),
+            PaymentResultRow("Sign in with the same account", PaymentResultRowTone.IDLE)
+        )
+    )
 }
 
 @Composable
@@ -146,9 +156,14 @@ internal fun PaymentResultCard(
     actionError: String? = null,
     primaryAction: PaymentResultAction? = null,
     secondaryAction: PaymentResultAction? = null,
-    onContactSupport: (() -> Unit)? = null
+    onContactSupport: (() -> Unit)? = null,
+    copyOverride: PaymentResultCopy? = null,
+    statusMessage: String? = null,
+    noteOverride: String? = null,
+    amountLabel: String? = null,
+    securityFooter: String? = null
 ) {
-    val copy = paymentResultCopy(status)
+    val copy = copyOverride ?: paymentResultCopy(status)
     val iconColor = when (status) {
         PaymentResultStatus.SUCCESS -> Color(0xFF15803D)
         PaymentResultStatus.FAILED -> Color(0xFFB42332)
@@ -156,7 +171,8 @@ internal fun PaymentResultCard(
         PaymentResultStatus.VERIFYING,
         PaymentResultStatus.PROCESSING,
         PaymentResultStatus.ORDER_CONFIRMING,
-        PaymentResultStatus.VERIFICATION_ERROR -> Color(0xFF0B2A66)
+        PaymentResultStatus.VERIFICATION_ERROR,
+        PaymentResultStatus.AUTHENTICATION_REQUIRED -> Color(0xFF0B2A66)
     }
     val iconBackground = when (status) {
         PaymentResultStatus.SUCCESS -> Color(0xFFEAF7EF)
@@ -165,7 +181,8 @@ internal fun PaymentResultCard(
         PaymentResultStatus.VERIFYING,
         PaymentResultStatus.PROCESSING,
         PaymentResultStatus.ORDER_CONFIRMING,
-        PaymentResultStatus.VERIFICATION_ERROR -> Color(0xFFF1F6FF)
+        PaymentResultStatus.VERIFICATION_ERROR,
+        PaymentResultStatus.AUTHENTICATION_REQUIRED -> Color(0xFFF1F6FF)
     }
 
     Card(
@@ -199,6 +216,7 @@ internal fun PaymentResultCard(
                         PaymentResultStatus.FAILED,
                         PaymentResultStatus.VERIFICATION_ERROR -> Icons.Default.ErrorOutline
                         PaymentResultStatus.CANCELLED -> Icons.Default.Cancel
+                        PaymentResultStatus.AUTHENTICATION_REQUIRED -> Icons.Default.Lock
                     },
                     contentDescription = null,
                     tint = iconColor,
@@ -230,8 +248,18 @@ internal fun PaymentResultCard(
                 lineHeight = 22.sp,
                 textAlign = TextAlign.Center
             )
+            statusMessage?.let {
+                Text(
+                    it,
+                    modifier = Modifier.padding(top = 12.dp),
+                    color = Color(0xFF2563EB),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center
+                )
+            }
 
-            if (orderReference != null || amount != null) {
+            if (orderReference != null || amount != null || amountLabel != null) {
                 Spacer(Modifier.size(18.dp))
                 Card(
                     shape = RoundedCornerShape(12.dp),
@@ -241,12 +269,11 @@ internal fun PaymentResultCard(
                         orderReference?.let {
                             ResultSummaryLine("Order reference", it)
                         }
-                        if (orderReference != null && amount != null) {
+                        if (orderReference != null && (amount != null || amountLabel != null)) {
                             HorizontalDivider(color = Color(0xFFE6ECF4))
                         }
-                        amount?.let {
-                            ResultSummaryLine("Amount paid", formatPrice(it))
-                        }
+                        val displayedAmount = amountLabel ?: amount?.let(::formatPrice)
+                        displayedAmount?.let { ResultSummaryLine("Amount paid", it) }
                     }
                 }
             }
@@ -265,16 +292,15 @@ internal fun PaymentResultCard(
                 }
             }
 
-            if (status == PaymentResultStatus.PROCESSING ||
-                status == PaymentResultStatus.ORDER_CONFIRMING ||
-                status == PaymentResultStatus.VERIFICATION_ERROR
-            ) {
+            val note = noteOverride ?: when (status) {
+                PaymentResultStatus.PROCESSING,
+                PaymentResultStatus.VERIFICATION_ERROR -> "Please don't close this page or try to pay again until the status is confirmed."
+                PaymentResultStatus.ORDER_CONFIRMING -> "Please don't close this page while we finish confirming your order."
+                else -> null
+            }
+            if (!note.isNullOrBlank()) {
                 Text(
-                    if (status == PaymentResultStatus.ORDER_CONFIRMING) {
-                        "Please don't close this page while we finish confirming your order."
-                    } else {
-                        "Please don't close this page or try to pay again until the status is confirmed."
-                    },
+                    note,
                     modifier = Modifier.padding(top = 14.dp),
                     color = Color(0xFF68768A),
                     fontSize = 13.sp,
@@ -327,7 +353,7 @@ internal fun PaymentResultCard(
             ) {
                 Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF738197), modifier = Modifier.size(14.dp))
                 Text(
-                    "  Secured by Stripe | Payment status checked securely",
+                    securityFooter ?: "  Secured by Stripe | Payment status checked securely",
                     color = Color(0xFF738197),
                     fontSize = 11.sp,
                     textAlign = TextAlign.Center

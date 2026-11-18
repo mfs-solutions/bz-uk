@@ -164,6 +164,7 @@ internal fun UkStripeCheckoutScreen(
             }
             PaymentResultStatus.ORDER_CONFIRMING -> null
             PaymentResultStatus.SUCCESS -> null
+            PaymentResultStatus.AUTHENTICATION_REQUIRED -> null
         }
         val secondaryAction = when (status) {
             PaymentResultStatus.PROCESSING,
@@ -172,7 +173,8 @@ internal fun UkStripeCheckoutScreen(
             PaymentResultStatus.CANCELLED -> PaymentResultAction("Back to cart", onNavigateToCart)
             PaymentResultStatus.ORDER_CONFIRMING,
             PaymentResultStatus.VERIFYING,
-            PaymentResultStatus.SUCCESS -> null
+            PaymentResultStatus.SUCCESS,
+            PaymentResultStatus.AUTHENTICATION_REQUIRED -> null
         }
         Column(modifier.fillMaxSize()) {
             TopAppBar(

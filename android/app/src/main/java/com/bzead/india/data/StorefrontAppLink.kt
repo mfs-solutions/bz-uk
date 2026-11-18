@@ -5,6 +5,7 @@ import android.net.Uri
 internal sealed interface StorefrontAppLink {
     data class Product(val reference: String) : StorefrontAppLink
     data class Section(val name: String) : StorefrontAppLink
+    data class UkCheckoutReturn(val sessionId: String?, val checkoutId: String?, val action: String?) : StorefrontAppLink
     data object Browser : StorefrontAppLink
 }
 
@@ -12,6 +13,13 @@ internal fun parseStorefrontAppLink(uri: Uri): StorefrontAppLink? {
     if (uri.scheme != "https" && uri.scheme != "http") return null
     if (uri.host !in setOf("www.bzead.uk", "bzead.uk") || uri.userInfo != null || uri.port != -1) return null
     val encodedPath = uri.encodedPath ?: return null
+    if (uri.path == "/checkout/uk-payment-return") {
+        return StorefrontAppLink.UkCheckoutReturn(
+            sessionId = uri.getQueryParameter("session_id"),
+            checkoutId = uri.getQueryParameter("checkout_id"),
+            action = uri.getQueryParameter("action")
+        )
+    }
     if (!encodedPath.startsWith("/products/") && !encodedPath.startsWith("/share/")) return null
     if (encodedPath.contains("//")) return StorefrontAppLink.Browser
     val parts = uri.pathSegments

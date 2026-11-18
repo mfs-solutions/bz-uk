@@ -1,5 +1,6 @@
 import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isHostedCurrency } from "./hosted-checkout-market.ts";
 
 type Database = ReturnType<typeof createClient>;
 
@@ -20,7 +21,7 @@ export async function recoverUkHostedCheckout(
   const session = await stripe.checkout.sessions.retrieve(sessionId);
   const snapshotId = session.metadata?.uk_checkout_snapshot_id;
   if (!snapshotId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(snapshotId) ||
-      session.livemode !== livemode || session.currency !== "gbp" ||
+      session.livemode !== livemode || !isHostedCurrency(session.currency) ||
       !session.amount_total || session.amount_total <= 0) {
     throw new Error("Invalid UK checkout session");
   }

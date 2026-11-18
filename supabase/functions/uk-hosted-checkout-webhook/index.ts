@@ -2,6 +2,7 @@ import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { recoverUkHostedCheckout } from "../_shared/uk-hosted-checkout.ts";
 import { sendUkOrderEmail, sendUkOrderPush } from "../_shared/uk-order-email.ts";
+import { isHostedCurrency } from "../_shared/hosted-checkout-market.ts";
 
 function json(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {
@@ -83,7 +84,7 @@ Deno.serve(async (req: Request) => {
         || session.status !== "complete"
         || session.payment_status !== "unpaid"
         || session.livemode !== livemode
-        || session.currency !== "gbp"
+        || !isHostedCurrency(session.currency)
         || !paymentIntentId
       ) {
         return json({ received: true }, 200);

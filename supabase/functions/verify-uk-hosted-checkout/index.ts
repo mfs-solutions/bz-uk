@@ -2,10 +2,15 @@ import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getUkCheckoutReturnStatus } from "../_shared/uk-checkout-return.ts";
 import { expireOpenUnpaidCheckout } from "../_shared/uk-checkout-lifecycle.ts";
+import { isHostedCurrency } from "../_shared/hosted-checkout-market.ts";
 
 const origins = new Set([
   "https://bzead.uk",
   "https://www.bzead.uk",
+  "https://bzead.eu",
+  "https://www.bzead.eu",
+  "https://bzead.us",
+  "https://www.bzead.us",
   "https://main.d2532vkjbofjsn.amplifyapp.com",
 ]);
 
@@ -97,7 +102,7 @@ Deno.serve(async (req: Request) => {
       || snapshot.amount_minor !== session.amount_total
       || snapshot.currency !== session.currency
       || session.livemode !== livemode
-      || session.currency !== "gbp"
+      || !isHostedCurrency(session.currency)
       || session.client_reference_id !== auth.user.id
     ) {
       throw new Error("Checkout Session does not match the authenticated customer's quote");

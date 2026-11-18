@@ -73,9 +73,12 @@ private val AddressMuted = Color(0xFF6B7280)
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-fun AddressManagementScreen(onNavigateBack: () -> Unit) {
+fun AddressManagementScreen(
+    onNavigateBack: () -> Unit,
+    onNavigateToEditor: ((String?) -> Unit)? = null
+) {
     val allAddresses by BzeadRepository.addresses.collectAsState()
-    val addresses = allAddresses.filter { StorefrontMarket.supportsCountry(it.country) }
+    val addresses = allAddresses
     val isLoggedIn by BzeadRepository.isLoggedIn.collectAsState()
     val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(true) }
@@ -152,7 +155,9 @@ fun AddressManagementScreen(onNavigateBack: () -> Unit) {
                 },
                 actions = {
                     if (!showForm && !isLoading) {
-                        TextButton(onClick = { resetForm() }) {
+                        TextButton(onClick = {
+                            if (onNavigateToEditor != null) onNavigateToEditor(null) else resetForm()
+                        }) {
                             Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("Add New", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
@@ -321,7 +326,9 @@ fun AddressManagementScreen(onNavigateBack: () -> Unit) {
                     Text("No addresses added yet", color = AddressMuted)
                     if (!showForm) {
                         Button(
-                            onClick = { resetForm() },
+                            onClick = {
+                                if (onNavigateToEditor != null) onNavigateToEditor(null) else resetForm()
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = AddressAmber, contentColor = Color.Black)
                         ) { Text("Add Your First Address") }
                     }
@@ -331,7 +338,9 @@ fun AddressManagementScreen(onNavigateBack: () -> Unit) {
                     AddressCard(
                         address = address,
                         isSaving = isSaving,
-                        onEdit = { resetForm(address) },
+                        onEdit = {
+                            if (onNavigateToEditor != null) onNavigateToEditor(address.id) else resetForm(address)
+                        },
                         onDelete = { pendingDelete = address },
                         onSetDefault = {
                             isSaving = true

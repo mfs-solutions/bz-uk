@@ -1,10 +1,15 @@
 import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getOrCreateStripeCustomer } from "../create-payment-intent/customer.ts";
+import { isHostedCurrency } from "../_shared/hosted-checkout-market.ts";
 
 const origins = new Set([
   "https://bzead.uk",
   "https://www.bzead.uk",
+  "https://bzead.eu",
+  "https://www.bzead.eu",
+  "https://bzead.us",
+  "https://www.bzead.us",
   "https://main.d2532vkjbofjsn.amplifyapp.com",
 ]);
 
@@ -56,7 +61,7 @@ Deno.serve(async (req: Request) => {
     if (error) throw error;
     const livemode = /^(sk|rk)_live_/.test(stripeKey);
     if (!snapshot || snapshot.user_id !== auth.user.id || snapshot.stripe_account_id !== accountId ||
-        snapshot.livemode !== livemode || snapshot.currency !== "gbp" ||
+        snapshot.livemode !== livemode || !isHostedCurrency(snapshot.currency) ||
         !Number.isSafeInteger(snapshot.amount_minor) || snapshot.amount_minor <= 0 ||
         snapshot.amount_minor > 5_000_000 || snapshot.order_id || snapshot.closed_at) {
       return json({ error: "Checkout is no longer available" }, 409);

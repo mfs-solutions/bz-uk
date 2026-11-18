@@ -1075,6 +1075,12 @@ object BzeadRepository {
     private suspend fun checkoutToken(): String =
         validToken() ?: throw CheckoutException("Authentication expired. Please log in again.")
 
+    internal suspend fun verifyUkHostedCheckout(
+        action: String,
+        sessionId: String,
+        snapshotId: String
+    ): UkHostedCheckoutResult = UkHostedCheckoutApi.verify(checkoutToken(), action, sessionId, snapshotId)
+
     private suspend fun buildCheckoutItems(token: String): List<CheckoutItem> {
         val cart = activeCartItems()
         val sellers = CheckoutApi.fetchSellerIds(cart.map { it.product.id }, token)

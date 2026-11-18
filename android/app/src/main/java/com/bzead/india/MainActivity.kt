@@ -66,6 +66,8 @@ import com.bzead.india.ui.theme.MyApplicationTheme
 import com.bzead.india.ui.screens.ShippingAddressScreen
 import com.bzead.india.ui.screens.OrderSummaryScreen
 import com.bzead.india.ui.screens.AddressManagementScreen
+import com.bzead.india.ui.screens.AddressEditorScreen
+import com.bzead.india.ui.screens.UkHostedCheckoutReturnScreen
 import com.bzead.india.ui.screens.WriteReviewScreen
 import com.bzead.india.ui.screens.SettingsScreen
 import com.bzead.india.ui.screens.SectionProductsScreen
@@ -98,6 +100,12 @@ sealed class AppScreen {
     data object Notifications : AppScreen()
     data class Policy(val type: String) : AppScreen()
     data object AddressManagement : AppScreen()
+    data class AddressEditor(val addressId: String?) : AppScreen()
+    data class UkHostedCheckoutReturn(
+        val sessionId: String = "",
+        val checkoutId: String = "",
+        val action: String? = null
+    ) : AppScreen()
     data class WriteReview(val productId: String) : AppScreen()
     data object Settings : AppScreen()
     data class SectionProducts(val sectionId: String) : AppScreen()
@@ -129,6 +137,8 @@ private fun AppScreen.toSavedRoute(): ArrayList<String> = ArrayList(when (this) 
     AppScreen.Notifications -> listOf("notifications")
     is AppScreen.Policy -> listOf("policy", type)
     AppScreen.AddressManagement -> listOf("address-management")
+    is AppScreen.AddressEditor -> listOf("address-editor", addressId.orEmpty())
+    is AppScreen.UkHostedCheckoutReturn -> listOf("uk-checkout-return", sessionId, checkoutId, action.orEmpty())
     is AppScreen.WriteReview -> listOf("write-review", productId)
     AppScreen.Settings -> listOf("settings")
     is AppScreen.SectionProducts -> listOf("section-products", sectionId)
@@ -159,6 +169,12 @@ private fun List<String>.toAppScreen(): AppScreen = when (firstOrNull()) {
     "notifications" -> AppScreen.Notifications
     "policy" -> getOrNull(1)?.let { AppScreen.Policy(it) } ?: AppScreen.Home
     "address-management" -> AppScreen.AddressManagement
+    "address-editor" -> AppScreen.AddressEditor(getOrNull(1)?.takeIf { it.isNotBlank() })
+    "uk-checkout-return" -> AppScreen.UkHostedCheckoutReturn(
+        getOrNull(1).orEmpty(),
+        getOrNull(2).orEmpty(),
+        getOrNull(3)?.takeIf { it.isNotBlank() }
+    )
     "write-review" -> getOrNull(1)?.let { AppScreen.WriteReview(it) } ?: AppScreen.Home
     "settings" -> AppScreen.Settings
     "section-products" -> getOrNull(1)?.let { AppScreen.SectionProducts(it) } ?: AppScreen.Home
@@ -171,6 +187,7 @@ private fun AppScreen.requiresBuyerAuth(): Boolean = when (this) {
     AppScreen.Cart, AppScreen.Checkout, AppScreen.Orders, AppScreen.Wishlist,
     AppScreen.Notifications, AppScreen.Profile, AppScreen.ShippingAddress,
     AppScreen.OrderSummary, AppScreen.AddressManagement, AppScreen.Settings,
+    is AppScreen.AddressEditor,
     is AppScreen.OrderDetail, is AppScreen.OrderSuccess, is AppScreen.WriteReview -> true
     else -> false
 }
@@ -288,6 +305,18 @@ class MainActivity : ComponentActivity(), com.razorpay.PaymentResultWithDataList
                             parts.size == 2 && parts[0] == "products" && (parts[1] == "featured" || parts[1] == "hot-deals") ->
                                 currentScreen = AppScreen.SectionProducts(parts[1])
                             parts.size == 2 && parts[0] == "category" -> currentScreen = AppScreen.CategoryDetail(parts[1])
+                            parts.size == 3 && parts[0] == "user" && parts[1] == "addresses" && parts[2] == "new" ->
+                                currentScreen = AppScreen.AddressEditor(null)
+                            parts.size == 4 && parts[0] == "user" && parts[1] == "addresses" && parts[3] == "edit" ->
+                                currentScreen = AppScreen.AddressEditor(Uri.decode(parts[2]))
+                            parts.size == 2 && parts[0] == "checkout" && parts[1] == "uk-payment-return" -> {
+                                val uri = Uri.parse(link)
+                                currentScreen = AppScreen.UkHostedCheckoutReturn(
+                                    sessionId = uri.getQueryParameter("session_id").orEmpty(),
+                                    checkoutId = uri.getQueryParameter("checkout_id").orEmpty(),
+                                    action = uri.getQueryParameter("action")
+                                )
+                            }
                             parts.size == 2 && (parts[0] == "products" || parts[0] == "share") && parts[1] != "section" ->
                                 linkScope.launch {
                                     BzeadRepository.resolveProductRef(parts[1])?.let { currentScreen = AppScreen.ProductDetail(it) }
@@ -367,6 +396,15 @@ class MainActivity : ComponentActivity(), com.razorpay.PaymentResultWithDataList
                         is StorefrontAppLink.Section -> {
                             pendingLoginDestination = null
                             navigateTo(AppScreen.SectionProducts(route.name))
+                        }
+                        is StorefrontAppLink.UkCheckoutReturn -> {
+                            navigateTo(
+                                AppScreen.UkHostedCheckoutReturn(
+                                    sessionId = route.sessionId.orEmpty(),
+                                    checkoutId = route.checkoutId.orEmpty(),
+                                    action = route.action
+                                )
+                            )
                         }
                         StorefrontAppLink.Browser -> {
                             val browser = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_BROWSER)
@@ -546,7 +584,24 @@ class MainActivity : ComponentActivity(), com.razorpay.PaymentResultWithDataList
                                 }
                                 is AppScreen.AddressManagement -> {
                                     AddressManagementScreen(
-                                        onNavigateBack = { navigateBack() }
+                                        onNavigateBack = { navigateBack() },
+                                        onNavigateToEditor = { id -> navigateTo(AppScreen.AddressEditor(id)) }
+                                    )
+                                }
+                                is AppScreen.AddressEditor -> {
+                                    AddressEditorScreen(
+                                        addressId = screen.addressId,
+                                        onNavigateBack = { navigateBack() },
+                                        onNavigateToAddresses = {
+                                            if (screenHistory.size > 1 &&
+                                                screenHistory[screenHistory.lastIndex - 1] == AppScreen.AddressManagement
+                                            ) {
+                                                navigateBack()
+                                            } else {
+                                                navigateTo(AppScreen.AddressManagement)
+                                            }
+                                        },
+                                        onNavigateToProfile = { navigateTo(AppScreen.Profile) }
                                     )
                                 }
                                 is AppScreen.WriteReview -> {
@@ -590,6 +645,24 @@ class MainActivity : ComponentActivity(), com.razorpay.PaymentResultWithDataList
                                         onOrderPlaced = { orderId -> navigateTo(AppScreen.OrderSuccess(orderId)) },
                                         onNavigateToCart = { navigateTo(AppScreen.Cart) },
                                         onNavigateToOrders = { navigateTo(AppScreen.Orders) },
+                                        onContactSupport = { navigateTo(AppScreen.Contact) }
+                                    )
+                                }
+                                is AppScreen.UkHostedCheckoutReturn -> {
+                                    UkHostedCheckoutReturnScreen(
+                                        sessionId = screen.sessionId,
+                                        checkoutId = screen.checkoutId,
+                                        action = screen.action,
+                                        onNavigateBack = { navigateBack() },
+                                        onViewOrder = { id -> navigateTo(AppScreen.OrderDetail(id)) },
+                                        onContinueShopping = { navigateTo(AppScreen.Home) },
+                                        onRetryPayment = { navigateTo(AppScreen.OrderSummary) },
+                                        onBackToCart = { navigateTo(AppScreen.Cart) },
+                                        onSignIn = {
+                                            pendingLoginDestination = currentScreen
+                                            currentScreen = AppScreen.Login
+                                        },
+                                        onViewOrders = { navigateTo(AppScreen.Orders) },
                                         onContactSupport = { navigateTo(AppScreen.Contact) }
                                     )
                                 }

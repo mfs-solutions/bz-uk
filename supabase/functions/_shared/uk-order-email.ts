@@ -192,7 +192,7 @@ export async function sendUkOrderPush(
         orderId,
         recipientUserIds,
         title: "Order placed successfully",
-        message: "Your UK order has been placed and is being processed.",
+        message: "Your order has been placed and is being processed.",
         type: "order_placed",
         metadata: { order_id: orderId, order_number: order.order_number, snapshot_id: snapshotId },
       }),

@@ -36,6 +36,18 @@ class StorefrontAppLinkTest {
     }
 
     @Test
+    fun hostedCheckoutReturnDeepLinksPreserveVerificationParameters() {
+        assertEquals(
+            StorefrontAppLink.UkCheckoutReturn("cs_live_abc123", "550e8400-e29b-41d4-a716-446655440000", null),
+            parse("https://www.bzead.uk/checkout/uk-payment-return?session_id=cs_live_abc123&checkout_id=550e8400-e29b-41d4-a716-446655440000")
+        )
+        assertEquals(
+            StorefrontAppLink.UkCheckoutReturn(null, null, "cancel"),
+            parse("https://bzead.uk/checkout/uk-payment-return?action=cancel")
+        )
+    }
+
+    @Test
     fun unsupportedNestedAndAmbiguousRoutesGoToBrowser() {
         assertEquals(StorefrontAppLink.Browser, parse("https://www.bzead.uk/products/blue-shirt/review"))
         assertEquals(StorefrontAppLink.Browser, parse("https://bzead.uk/products/blue-shirt/review"))
@@ -71,7 +83,10 @@ class StorefrontAppLinkTest {
         assertTrue(matches("http://www.bzead.uk/share/blue-shirt"))
         assertTrue(matches("https://bzead.uk/products/blue-shirt"))
         assertTrue(matches("http://bzead.uk/share/blue-shirt"))
+        assertTrue(matches("https://www.bzead.uk/checkout/uk-payment-return?session_id=cs_live_abc123"))
+        assertTrue(matches("https://bzead.uk/checkout/uk-payment-return?action=cancel"))
         assertFalse(matches("https://www.bzead.uk/checkout/payment"))
+        assertFalse(matches("https://www.bzead.uk/checkout/uk-payment-return/extra"))
         assertFalse(matches("https://www.bzead.uk/login"))
         assertFalse(matches("https://bzead.uk/checkout/payment"))
         assertFalse(matches("https://bzead.uk/login"))

@@ -48,4 +48,13 @@ class PaymentResultCopyTest {
         assertEquals(PaymentResultRowTone.ACTIVE, copy.rows[1].tone)
         assertEquals(PaymentResultRowTone.IDLE, copy.rows[2].tone)
     }
+
+    @Test
+    fun authenticationRequiredStateDoesNotClaimPaymentFailure() {
+        val copy = paymentResultCopy(PaymentResultStatus.AUTHENTICATION_REQUIRED)
+
+        assertEquals("Sign in to check your payment", copy.title)
+        assertTrue(copy.rows.any { it.text.contains("same account") })
+        assertFalse(copy.description.contains("failed", ignoreCase = true))
+    }
 }
